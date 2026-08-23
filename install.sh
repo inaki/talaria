@@ -52,6 +52,15 @@ detect_target() {
   esac
 }
 
+append_path_rc() {
+  local rc="$1"
+  local line='export PATH="$HOME/.local/bin:$PATH"'
+  [ -f "$rc" ] || return 0
+  grep -qF '.local/bin' "$rc" 2>/dev/null && return 0
+  printf '\n# talaria\n%s\n' "$line" >>"$rc"
+  cyan "→ added ~/.local/bin to $rc"
+}
+
 file_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -117,13 +126,18 @@ main() {
   case ":$PATH:" in
     *":${BIN_DIR}:"*) ;;
     *)
-      cyan "→ add to PATH:"
-      echo "  export PATH=\"${BIN_DIR}:\$PATH\""
-      echo "  # then reload the shell, or append that line to ~/.zshrc / ~/.bashrc"
+      append_path_rc "$HOME/.bashrc"
+      append_path_rc "$HOME/.bash_profile"
+      append_path_rc "$HOME/.zshrc"
+      append_path_rc "$HOME/.profile"
+      export PATH="${BIN_DIR}:$PATH"
+      cyan "→ this shell: export PATH=\"${BIN_DIR}:\$PATH\""
       ;;
   esac
 
   echo
+  echo "Command name is:  talaria"
+  echo "Run it now with:  ${BIN_DIR}/${BIN_NAME} --version"
   "${BIN_DIR}/${BIN_NAME}" --version || true
   echo
   echo "Talaria is an unofficial TUI client for Hermes Agent (Nous Research)."
