@@ -299,9 +299,169 @@ async fn mock_loop(
                     .await;
                 play_scenario(scenario, &text, &ev_tx).await;
             }
+            SessionCommand::FetchModelOptions { .. } => {
+                let _ = ev_tx.send(mock_model_options()).await;
+            }
+            SessionCommand::SaveModelKey { slug, .. } => {
+                let _ = ev_tx
+                    .send(SessionEvent::ModelKeySaved {
+                        provider: crate::session::ModelProvider {
+                            slug: slug.clone(),
+                            name: slug,
+                            authenticated: true,
+                            is_current: false,
+                            auth_type: "api_key".into(),
+                            key_env: Some("MOCK_API_KEY".into()),
+                            models: vec!["mock/alpha".into(), "mock/beta".into()],
+                            total_models: 2,
+                            warning: None,
+                        },
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::DisconnectModel { slug } => {
+                let _ = ev_tx
+                    .send(SessionEvent::ModelDisconnected { slug, ok: true })
+                    .await;
+            }
+            SessionCommand::FetchSkills => {
+                let _ = ev_tx
+                    .send(SessionEvent::SkillsList {
+                        groups: vec![("bundled".into(), vec!["plan".into(), "review".into()])],
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::InstallSkill { query } => {
+                let _ = ev_tx
+                    .send(SessionEvent::SkillInstalled {
+                        name: query,
+                        ok: true,
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::FetchPlugins => {
+                let _ = ev_tx
+                    .send(SessionEvent::PluginsList {
+                        plugins: vec![crate::session::PluginRow {
+                            name: "demo".into(),
+                            key: "demo".into(),
+                            version: "1".into(),
+                            description: "mock plugin".into(),
+                            source: "user".into(),
+                            status: "enabled".into(),
+                        }],
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::TogglePlugin { key, enable } => {
+                let _ = ev_tx
+                    .send(SessionEvent::PluginToggled {
+                        plugin: Some(crate::session::PluginRow {
+                            name: key.clone(),
+                            key,
+                            version: "1".into(),
+                            description: String::new(),
+                            source: "user".into(),
+                            status: if enable { "enabled" } else { "disabled" }.into(),
+                        }),
+                        ok: true,
+                    })
+                    .await;
+            }
+            SessionCommand::FetchMcpServers => {
+                let _ = ev_tx
+                    .send(SessionEvent::McpServers {
+                        servers: vec![crate::session::McpServer {
+                            name: "filesystem".into(),
+                            transport: "stdio".into(),
+                            enabled: true,
+                            auth: String::new(),
+                        }],
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::FetchMcpCatalog => {
+                let _ = ev_tx
+                    .send(SessionEvent::McpCatalog {
+                        servers: vec![crate::session::McpCatalogEntry {
+                            name: "n8n".into(),
+                            description: "n8n automation".into(),
+                            installed: false,
+                            enabled: false,
+                        }],
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::AddMcp { name, .. } | SessionCommand::RemoveMcp { name } => {
+                let _ = ev_tx
+                    .send(SessionEvent::McpChanged {
+                        name,
+                        ok: true,
+                        error: None,
+                    })
+                    .await;
+            }
+            SessionCommand::SetConfig { key, value, .. } => {
+                let model = value
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(&value)
+                    .to_string();
+                let _ = ev_tx
+                    .send(SessionEvent::ConfigSet {
+                        key,
+                        value: Some(model.clone()),
+                        warning: None,
+                        deferred: false,
+                        confirm_required: false,
+                        confirm_message: None,
+                        info: Some(json!({ "model": model })),
+                    })
+                    .await;
+            }
             SessionCommand::Shutdown | SessionCommand::Close => break,
             _ => {}
         }
+    }
+}
+
+fn mock_model_options() -> SessionEvent {
+    SessionEvent::ModelOptions {
+        providers: vec![
+            crate::session::ModelProvider {
+                slug: "openrouter".into(),
+                name: "OpenRouter".into(),
+                authenticated: true,
+                is_current: true,
+                auth_type: "api_key".into(),
+                key_env: Some("OPENROUTER_API_KEY".into()),
+                models: vec![
+                    "anthropic/claude-sonnet-4.6".into(),
+                    "openai/gpt-5.4".into(),
+                ],
+                total_models: 2,
+                warning: None,
+            },
+            crate::session::ModelProvider {
+                slug: "anthropic".into(),
+                name: "Anthropic".into(),
+                authenticated: false,
+                is_current: false,
+                auth_type: "api_key".into(),
+                key_env: Some("ANTHROPIC_API_KEY".into()),
+                models: Vec::new(),
+                total_models: 0,
+                warning: Some("paste ANTHROPIC_API_KEY to activate".into()),
+            },
+        ],
+        model: "anthropic/claude-sonnet-4.6".into(),
+        error: None,
     }
 }
 

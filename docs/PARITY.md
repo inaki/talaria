@@ -2,7 +2,7 @@
 
 **Status SSOT for what this host covers.** Architecture discussion stays in [PLAN.md](./PLAN.md). Never create `MIGRATION.md`.
 
-Last updated: 2026-08-22.
+Last updated: 2026-08-23.
 
 **Live dump (2026-08-22):** `cargo run --example dump_gateway` against
 `~/.hermes/hermes-agent/venv/bin/python` — `gateway.ready` + `session.create`
@@ -21,6 +21,8 @@ Last updated: 2026-08-22.
 | Tools | Partial | Collapsed one-liner; **Ctrl+O** expands args/result; secrets redacted |
 | Approvals / clarify / sudo / secret | Yes | Overlays; expire only sudo/secret by `request_id` |
 | Slash catalog | Yes | `commands.catalog` + `command.dispatch` |
+| Model picker | Yes | Native `/model` overlay (`model.options` / `model.save_key` / `model.disconnect` / `config.set`). Bare `/model` opens the picker; `/model <id>` hot-swaps. API-key providers can be added in-place |
+| Skills / plugins / MCP | Yes | Native `/skills`, `/plugins`, `/mcp` overlays (`skills.manage`, `plugins.manage`, `mcp.servers.*`). Add/remove/toggle stay in this TUI |
 | Saved / live sessions | Yes | `session.list`+`resume` vs `active_list`+`activate` |
 | Session branch | Yes | `/branch` → `session.branch` |
 | Steer mid-turn | Yes | Enter while streaming → `session.steer` |

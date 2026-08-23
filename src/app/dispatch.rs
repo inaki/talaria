@@ -129,6 +129,77 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
             let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
             chat.open_theme();
         }
+        ScreenAction::OpenModel { refresh } => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_model();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchModelOptions { refresh });
+            }
+        }
+        ScreenAction::SaveModelKey { slug, api_key } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::SaveModelKey { slug, api_key });
+            }
+        }
+        ScreenAction::DisconnectModel { slug } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::DisconnectModel { slug });
+            }
+        }
+        ScreenAction::SetModel {
+            value,
+            confirm_expensive_model,
+        } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::SetConfig {
+                    key: "model".into(),
+                    value,
+                    confirm_expensive_model,
+                });
+            }
+        }
+        ScreenAction::OpenSkills => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_skills();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchSkills);
+            }
+        }
+        ScreenAction::InstallSkill { query } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::InstallSkill { query });
+            }
+        }
+        ScreenAction::OpenPlugins => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_plugins();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchPlugins);
+            }
+        }
+        ScreenAction::TogglePlugin { key, enable } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::TogglePlugin { key, enable });
+            }
+        }
+        ScreenAction::OpenMcp => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_mcp();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchMcpServers);
+                session.send(SessionCommand::FetchMcpCatalog);
+            }
+        }
+        ScreenAction::AddMcp { name, preset } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::AddMcp { name, preset });
+            }
+        }
+        ScreenAction::RemoveMcp { name } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::RemoveMcp { name });
+            }
+        }
         ScreenAction::Rewind {
             text,
             truncate_before_row_id,

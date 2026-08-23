@@ -22,6 +22,18 @@ pub fn is_ctrl_o(key: &KeyEvent) -> bool {
     )
 }
 
+pub fn is_ctrl_d(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+pub fn is_ctrl_g(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+pub fn is_ctrl_u(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
 /// Insert a newline rather than submit.
 ///
 /// Terminals disagree on Shift+Enter:

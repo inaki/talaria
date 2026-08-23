@@ -101,7 +101,7 @@ Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 | **Ctrl+V** | Clipboard image (`clipboard.paste`) |
 | **Ctrl+C** | Quit (confirm) |
 
-Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/trees` `/theme` `/clear` `/quit`.
+Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/trees` `/model` `/skills` `/plugins` `/mcp` `/theme` `/clear` `/quit`.
 
 ---
 

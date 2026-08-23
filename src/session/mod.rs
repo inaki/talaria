@@ -11,8 +11,9 @@ pub use live::GatewaySession;
 pub use mock::{MockScenario, MockSession};
 pub(crate) use parse::rewind_turns_from_messages;
 pub use types::{
-    ActiveSession, RewindTurn, SavedSession, SessionCommand, SessionEvent, SlashCommand,
-    SpawnTreeEntry, SubagentKind, SubagentRow, TranscriptMessage,
+    ActiveSession, McpCatalogEntry, McpServer, ModelProvider, PluginRow, RewindTurn, SavedSession,
+    SessionCommand, SessionEvent, SlashCommand, SpawnTreeEntry, SubagentKind, SubagentRow,
+    TranscriptMessage,
 };
 
 pub trait SessionApi {

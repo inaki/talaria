@@ -6,12 +6,16 @@ use crate::gateway::GatewayEvent;
 use crate::protocol::{delta_text, is_unhandled_v1, WireEvent};
 
 use super::types::{
-    ActiveSession, RewindTurn, SavedSession, SessionEvent, SlashCommand, SpawnTreeEntry,
-    SubagentKind, SubagentRow, TranscriptMessage,
+    ActiveSession, McpCatalogEntry, McpServer, ModelProvider, PluginRow, RewindTurn, SavedSession,
+    SessionEvent, SlashCommand, SpawnTreeEntry, SubagentKind, SubagentRow, TranscriptMessage,
 };
 
 pub(crate) fn ordinary_submit_params(session_id: &str, text: &str) -> Value {
     json!({ "session_id": session_id, "text": text })
+}
+
+pub(crate) fn resize_params(session_id: &str, cols: u16, rows: u16) -> Value {
+    json!({ "session_id": session_id, "cols": cols, "rows": rows })
 }
 
 pub(crate) fn rewind_submit_params(
@@ -507,6 +511,288 @@ pub(super) fn parse_spawn_trees(result: &Value) -> SessionEvent {
     SessionEvent::SpawnTrees { entries }
 }
 
+fn rewrite_setup_warning(s: &str) -> String {
+    let lower = s.to_ascii_lowercase();
+    if !(lower.contains("hermes model")
+        || lower.contains("hermes setup")
+        || lower.contains("`hermes"))
+    {
+        return s.to_string();
+    }
+    if lower.contains("oauth") {
+        "OAuth provider — not a paste-key setup".into()
+    } else if lower.contains("key") || lower.contains("paste") {
+        "paste the API key to activate".into()
+    } else {
+        "not configured — API-key providers can be activated here".into()
+    }
+}
+
+pub(super) fn parse_model_options(result: &Value) -> SessionEvent {
+    let providers = result
+        .get("providers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(parse_model_provider).collect())
+        .unwrap_or_default();
+    SessionEvent::ModelOptions {
+        providers,
+        model: result
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        error: None,
+    }
+}
+
+pub(super) fn parse_model_provider(v: &Value) -> Option<ModelProvider> {
+    let slug = v.get("slug").and_then(|s| s.as_str())?.to_string();
+    let name = v
+        .get("name")
+        .and_then(|s| s.as_str())
+        .unwrap_or(&slug)
+        .to_string();
+    let models: Vec<String> = v
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let total_models = v
+        .get("total_models")
+        .and_then(|n| n.as_u64())
+        .unwrap_or(models.len() as u64);
+    Some(ModelProvider {
+        name,
+        slug,
+        authenticated: v
+            .get("authenticated")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(true),
+        is_current: v
+            .get("is_current")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
+        auth_type: v
+            .get("auth_type")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+        key_env: v
+            .get("key_env")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string()),
+        models,
+        total_models,
+        warning: v
+            .get("warning")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+            .map(rewrite_setup_warning),
+    })
+}
+
+pub(super) fn parse_model_key_saved(result: &Value) -> SessionEvent {
+    match result.get("provider").and_then(parse_model_provider) {
+        Some(provider) => SessionEvent::ModelKeySaved {
+            provider,
+            error: None,
+        },
+        None => SessionEvent::ModelKeySaved {
+            provider: ModelProvider {
+                slug: String::new(),
+                name: String::new(),
+                authenticated: false,
+                is_current: false,
+                auth_type: String::new(),
+                key_env: None,
+                models: Vec::new(),
+                total_models: 0,
+                warning: None,
+            },
+            error: Some("failed to save key".into()),
+        },
+    }
+}
+
+pub(super) fn parse_model_disconnected(slug: String, result: &Value) -> SessionEvent {
+    SessionEvent::ModelDisconnected {
+        slug,
+        ok: result
+            .get("disconnected")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    }
+}
+
+pub(super) fn parse_config_set(key: String, result: &Value) -> SessionEvent {
+    SessionEvent::ConfigSet {
+        key,
+        value: result
+            .get("value")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        warning: result
+            .get("warning")
+            .or_else(|| result.get("credential_warning"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        deferred: result
+            .get("deferred")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        confirm_required: result
+            .get("confirm_required")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        confirm_message: result
+            .get("confirm_message")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        info: result.get("info").cloned(),
+    }
+}
+
+pub(super) fn parse_skills_list(result: &Value) -> SessionEvent {
+    let groups = result
+        .get("skills")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            let mut out: Vec<(String, Vec<String>)> = obj
+                .iter()
+                .map(|(k, v)| {
+                    let members = v
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    (k.clone(), members)
+                })
+                .collect();
+            out.sort_by(|a, b| a.0.cmp(&b.0));
+            out
+        })
+        .unwrap_or_default();
+    SessionEvent::SkillsList {
+        groups,
+        error: None,
+    }
+}
+
+pub(super) fn parse_plugins_list(result: &Value) -> SessionEvent {
+    let plugins = result
+        .get("plugins")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(parse_plugin_row).collect())
+        .unwrap_or_default();
+    SessionEvent::PluginsList {
+        plugins,
+        error: None,
+    }
+}
+
+pub(super) fn parse_plugin_row(v: &Value) -> Option<PluginRow> {
+    let name = v.get("name").and_then(|s| s.as_str())?.to_string();
+    Some(PluginRow {
+        key: v
+            .get("key")
+            .and_then(|s| s.as_str())
+            .unwrap_or(&name)
+            .to_string(),
+        name,
+        version: v
+            .get("version")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+        description: v
+            .get("description")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+        source: v
+            .get("source")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+        status: v
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+pub(super) fn parse_mcp_servers(result: &Value) -> SessionEvent {
+    let servers = result
+        .get("servers")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    let name = s.get("name").and_then(|v| v.as_str())?.to_string();
+                    Some(McpServer {
+                        transport: s
+                            .get("transport")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        enabled: s.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+                        auth: s
+                            .get("auth")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    SessionEvent::McpServers {
+        servers,
+        error: None,
+    }
+}
+
+pub(super) fn parse_mcp_catalog(result: &Value) -> SessionEvent {
+    let servers = result
+        .get("servers")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    let name = s.get("name").and_then(|v| v.as_str())?.to_string();
+                    Some(McpCatalogEntry {
+                        description: s
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        installed: s
+                            .get("installed")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        enabled: s.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false),
+                        name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    SessionEvent::McpCatalog {
+        servers,
+        error: None,
+    }
+}
+
 pub(super) fn parse_delegation(result: &Value) -> SessionEvent {
     let agents = result
         .get("active")
@@ -594,6 +880,87 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn rewrite_warning_drops_hermes_cli() {
+        assert_eq!(
+            rewrite_setup_warning("run `hermes model` to configure"),
+            "not configured — API-key providers can be activated here"
+        );
+        assert!(
+            rewrite_setup_warning("paste OPENROUTER_API_KEY to activate").contains("OPENROUTER")
+        );
+    }
+
+    #[test]
+    fn parse_model_options_includes_unconfigured() {
+        let ev = parse_model_options(&json!({
+            "model": "openrouter/foo",
+            "providers": [
+                {
+                    "slug": "openrouter",
+                    "name": "OpenRouter",
+                    "authenticated": true,
+                    "is_current": true,
+                    "models": ["openrouter/foo", "openrouter/bar"],
+                    "total_models": 2
+                },
+                {
+                    "slug": "anthropic",
+                    "name": "Anthropic",
+                    "authenticated": false,
+                    "auth_type": "api_key",
+                    "key_env": "ANTHROPIC_API_KEY",
+                    "warning": "paste ANTHROPIC_API_KEY to activate"
+                }
+            ]
+        }));
+        match ev {
+            SessionEvent::ModelOptions {
+                providers, model, ..
+            } => {
+                assert_eq!(model, "openrouter/foo");
+                assert_eq!(providers.len(), 2);
+                assert!(providers[0].authenticated);
+                assert!(!providers[1].authenticated);
+                assert_eq!(providers[1].key_env.as_deref(), Some("ANTHROPIC_API_KEY"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_config_set_flags_expensive_confirm() {
+        let ev = parse_config_set(
+            "model".into(),
+            &json!({
+                "confirm_required": true,
+                "confirm_message": "this is expensive",
+                "value": "opus"
+            }),
+        );
+        match ev {
+            SessionEvent::ConfigSet {
+                confirm_required,
+                confirm_message,
+                value,
+                ..
+            } => {
+                assert!(confirm_required);
+                assert_eq!(confirm_message.as_deref(), Some("this is expensive"));
+                assert_eq!(value.as_deref(), Some("opus"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn resize_params_include_session_id() {
+        let p = resize_params("sess-1", 120, 40);
+        assert_eq!(p["session_id"], "sess-1");
+        assert_eq!(p["cols"], 120);
+        assert_eq!(p["rows"], 40);
     }
 
     #[test]

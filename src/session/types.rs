@@ -73,6 +73,39 @@ pub enum SessionCommand {
         truncate_before_row_id: i64,
         confirm_empty_truncate: bool,
     },
+    FetchModelOptions {
+        refresh: bool,
+    },
+    SaveModelKey {
+        slug: String,
+        api_key: String,
+    },
+    DisconnectModel {
+        slug: String,
+    },
+    SetConfig {
+        key: String,
+        value: String,
+        confirm_expensive_model: bool,
+    },
+    FetchSkills,
+    InstallSkill {
+        query: String,
+    },
+    FetchPlugins,
+    TogglePlugin {
+        key: String,
+        enable: bool,
+    },
+    FetchMcpServers,
+    FetchMcpCatalog,
+    AddMcp {
+        name: String,
+        preset: String,
+    },
+    RemoveMcp {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +232,58 @@ pub enum SessionEvent {
     RewindApplied {
         survivor_user_row_ids: Option<Vec<Option<i64>>>,
     },
+    ModelOptions {
+        providers: Vec<ModelProvider>,
+        model: String,
+        error: Option<String>,
+    },
+    ModelKeySaved {
+        provider: ModelProvider,
+        error: Option<String>,
+    },
+    ModelDisconnected {
+        slug: String,
+        ok: bool,
+    },
+    ConfigSet {
+        key: String,
+        value: Option<String>,
+        warning: Option<String>,
+        deferred: bool,
+        confirm_required: bool,
+        confirm_message: Option<String>,
+        info: Option<Value>,
+    },
+    SkillsList {
+        groups: Vec<(String, Vec<String>)>,
+        error: Option<String>,
+    },
+    SkillInstalled {
+        name: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    PluginsList {
+        plugins: Vec<PluginRow>,
+        error: Option<String>,
+    },
+    PluginToggled {
+        plugin: Option<PluginRow>,
+        ok: bool,
+    },
+    McpServers {
+        servers: Vec<McpServer>,
+        error: Option<String>,
+    },
+    McpCatalog {
+        servers: Vec<McpCatalogEntry>,
+        error: Option<String>,
+    },
+    McpChanged {
+        name: String,
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +329,45 @@ pub struct ActiveSession {
     pub title: Option<String>,
     pub status: String,
     pub current: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginRow {
+    pub name: String,
+    pub key: String,
+    pub version: String,
+    pub description: String,
+    pub source: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpServer {
+    pub name: String,
+    pub transport: String,
+    pub enabled: bool,
+    pub auth: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpCatalogEntry {
+    pub name: String,
+    pub description: String,
+    pub installed: bool,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelProvider {
+    pub slug: String,
+    pub name: String,
+    pub authenticated: bool,
+    pub is_current: bool,
+    pub auth_type: String,
+    pub key_env: Option<String>,
+    pub models: Vec<String>,
+    pub total_models: u64,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone)]

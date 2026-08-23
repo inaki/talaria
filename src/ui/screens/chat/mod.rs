@@ -10,7 +10,9 @@ use crate::session::{
 use crate::ui::screens::{Screen, ScreenAction};
 use crate::ui::widgets::{KeyHints, SlashItem, SlashMenu, Spinner, TextComposer};
 
+mod hubs;
 mod input;
+mod model_picker;
 mod overlay;
 mod render;
 mod tick;
@@ -566,6 +568,208 @@ impl Chat {
                     *loading = false;
                 }
             }
+            SessionEvent::ModelOptions {
+                providers,
+                model,
+                error,
+            } => {
+                if let Overlay::Model(picker) = &mut self.overlay {
+                    if let Some(err) = error {
+                        picker.loading = false;
+                        picker.error = Some(err);
+                    } else {
+                        picker.apply_options(providers, model);
+                    }
+                }
+            }
+            SessionEvent::ModelKeySaved { provider, error } => {
+                if let Overlay::Model(picker) = &mut self.overlay {
+                    picker.key_saving = false;
+                    if let Some(err) = error {
+                        picker.key_error = Some(err);
+                    } else if !provider.slug.is_empty() {
+                        let slug = provider.slug.clone();
+                        if let Some(existing) = picker.providers.iter_mut().find(|p| p.slug == slug)
+                        {
+                            *existing = provider;
+                        } else {
+                            picker.providers.push(provider);
+                        }
+                        if let Some(i) = picker.providers.iter().position(|p| p.slug == slug) {
+                            picker.provider_idx = i;
+                        }
+                        picker.stage = model_picker::ModelStage::Model;
+                        picker.model_idx = 0;
+                        picker.key_input.clear();
+                        picker.filter.clear();
+                    }
+                }
+            }
+            SessionEvent::ModelDisconnected { slug, ok } => {
+                if let Overlay::Model(picker) = &mut self.overlay {
+                    picker.key_saving = false;
+                    picker.stage = model_picker::ModelStage::Provider;
+                    if ok {
+                        if let Some(existing) = picker.providers.iter_mut().find(|p| p.slug == slug)
+                        {
+                            existing.authenticated = false;
+                            existing.models.clear();
+                            existing.total_models = 0;
+                            existing.warning = existing
+                                .key_env
+                                .as_ref()
+                                .map(|e| format!("paste {e} to activate"))
+                                .or_else(|| Some("OAuth provider — not a paste-key setup".into()));
+                        }
+                    }
+                }
+            }
+            SessionEvent::ConfigSet {
+                value,
+                warning,
+                deferred,
+                confirm_required,
+                confirm_message,
+                info,
+                ..
+            } => {
+                if confirm_required {
+                    let msg = confirm_message
+                        .unwrap_or_else(|| "This model has unusually high known pricing.".into());
+                    if let Overlay::Model(picker) = &mut self.overlay {
+                        picker.confirm_message = Some(msg);
+                        if picker.pending_value.is_none() {
+                            picker.pending_value = value;
+                        }
+                    } else {
+                        let mut picker = model_picker::ModelPicker::loading();
+                        picker.loading = false;
+                        picker.pending_value = value;
+                        picker.confirm_message = Some(msg);
+                        self.overlay = Overlay::Model(picker);
+                    }
+                    return;
+                }
+                if let Some(info) = info {
+                    self.apply_session_info(info);
+                } else if let Some(v) = &value {
+                    self.model = v.clone();
+                }
+                let shown = value.as_deref().unwrap_or("?");
+                let msg = if deferred {
+                    format!("model → {shown} (applies next turn)")
+                } else {
+                    format!("model → {shown}")
+                };
+                self.notice = Some(msg.clone());
+                self.items.push(TimelineItem::Status(msg));
+                if let Some(w) = warning {
+                    self.items.push(TimelineItem::Status(w));
+                }
+                if matches!(self.overlay, Overlay::Model(_)) {
+                    self.overlay.close();
+                }
+            }
+            SessionEvent::SkillsList { groups, error } => {
+                if let Overlay::Skills(hub) = &mut self.overlay {
+                    hub.loading = false;
+                    hub.error = error;
+                    hub.groups = groups;
+                }
+            }
+            SessionEvent::SkillInstalled { name, ok, error } => {
+                let msg = if let Some(e) = error {
+                    format!("skill {name}: {e}")
+                } else if ok {
+                    format!("installed {name}")
+                } else {
+                    format!("install failed: {name}")
+                };
+                self.notice = Some(msg.clone());
+                self.items.push(TimelineItem::Status(msg.clone()));
+                if let Overlay::Skills(hub) = &mut self.overlay {
+                    hub.notice = Some(msg);
+                }
+            }
+            SessionEvent::PluginsList { plugins, error } => {
+                if let Overlay::Plugins(hub) = &mut self.overlay {
+                    hub.loading = false;
+                    hub.error = error;
+                    hub.plugins = plugins;
+                    if hub.selected >= hub.plugins.len() {
+                        hub.selected = hub.plugins.len().saturating_sub(1);
+                    }
+                }
+            }
+            SessionEvent::PluginToggled { plugin, ok } => {
+                if let Overlay::Plugins(hub) = &mut self.overlay {
+                    if let Some(row) = plugin {
+                        let key = row.key.clone();
+                        let status = row.status.clone();
+                        if let Some(existing) = hub.plugins.iter_mut().find(|p| p.key == key) {
+                            *existing = row;
+                        }
+                        hub.notice = Some(if ok {
+                            format!("{status} {key}")
+                        } else {
+                            format!("toggle failed: {key}")
+                        });
+                    } else if !ok {
+                        hub.notice = Some("toggle failed".into());
+                    }
+                }
+            }
+            SessionEvent::McpServers { servers, error } => {
+                if let Overlay::Mcp(hub) = &mut self.overlay {
+                    hub.loading = false;
+                    if error.is_some() {
+                        hub.error = error;
+                    }
+                    hub.installed = servers;
+                }
+            }
+            SessionEvent::McpCatalog { servers, error } => {
+                if let Overlay::Mcp(hub) = &mut self.overlay {
+                    hub.loading = false;
+                    if error.is_some() {
+                        hub.error = error;
+                    }
+                    hub.catalog = servers;
+                }
+            }
+            SessionEvent::McpChanged { name, ok, error } => {
+                if let Overlay::Mcp(hub) = &mut self.overlay {
+                    hub.loading = false;
+                    if let Some(e) = error {
+                        hub.error = Some(e);
+                    } else if ok {
+                        hub.notice = Some(format!("updated {name}"));
+                        match hub.tab {
+                            hubs::McpTab::Catalog => {
+                                if !hub.installed.iter().any(|s| s.name == name) {
+                                    hub.installed.push(crate::session::McpServer {
+                                        name: name.clone(),
+                                        transport: String::new(),
+                                        enabled: true,
+                                        auth: String::new(),
+                                    });
+                                }
+                                if let Some(c) = hub.catalog.iter_mut().find(|c| c.name == name) {
+                                    c.installed = true;
+                                }
+                            }
+                            hubs::McpTab::Installed => {
+                                hub.installed.retain(|s| s.name != name);
+                            }
+                        }
+                    }
+                }
+                self.notice = Some(if ok {
+                    format!("mcp {name}")
+                } else {
+                    format!("mcp {name} failed")
+                });
+            }
         }
     }
 
@@ -775,6 +979,26 @@ impl Chat {
         self.pending_send.take()
     }
 
+    pub fn open_model(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Model(model_picker::ModelPicker::loading());
+    }
+
+    pub fn open_skills(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Skills(hubs::SkillsHub::loading());
+    }
+
+    pub fn open_plugins(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Plugins(hubs::PluginsHub::loading());
+    }
+
+    pub fn open_mcp(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Mcp(hubs::McpHub::loading());
+    }
+
     pub fn open_theme(&mut self) {
         self.slash.close();
         let saved_id = crate::theme::current_theme_id();
@@ -841,6 +1065,10 @@ fn grouped_map(v: Option<&serde_json::Value>) -> Vec<(String, Vec<String>)> {
 fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
     for (name, help) in [
         ("theme", "color theme"),
+        ("model", "switch or add models"),
+        ("skills", "browse and install skills"),
+        ("plugins", "toggle plugins"),
+        ("mcp", "add or remove MCP servers"),
         ("rewind", "regenerate from a past user turn"),
         ("trees", "saved spawn trees"),
         ("help", "keyboard help"),
@@ -959,6 +1187,44 @@ mod tests {
             TimelineItem::Assistant { text, streaming } => {
                 assert_eq!(text, "hello **world**");
                 assert!(!*streaming);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn config_set_updates_model_and_closes_picker() {
+        let mut chat = Chat::new();
+        chat.open_model();
+        chat.apply_event(SessionEvent::ConfigSet {
+            key: "model".into(),
+            value: Some("openrouter/foo".into()),
+            warning: None,
+            deferred: false,
+            confirm_required: false,
+            confirm_message: None,
+            info: Some(serde_json::json!({"model": "openrouter/foo"})),
+        });
+        assert_eq!(chat.model, "openrouter/foo");
+        assert!(!chat.overlay.is_open());
+    }
+
+    #[test]
+    fn config_set_confirm_keeps_picker_open() {
+        let mut chat = Chat::new();
+        chat.apply_event(SessionEvent::ConfigSet {
+            key: "model".into(),
+            value: Some("opus --global".into()),
+            warning: None,
+            deferred: false,
+            confirm_required: true,
+            confirm_message: Some("pricey".into()),
+            info: None,
+        });
+        match &chat.overlay {
+            Overlay::Model(p) => {
+                assert_eq!(p.confirm_message.as_deref(), Some("pricey"));
+                assert_eq!(p.pending_value.as_deref(), Some("opus --global"));
             }
             other => panic!("{other:?}"),
         }

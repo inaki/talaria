@@ -78,6 +78,37 @@ pub enum ScreenAction {
         confirm_empty_truncate: bool,
     },
     OpenTheme,
+    OpenModel {
+        refresh: bool,
+    },
+    SaveModelKey {
+        slug: String,
+        api_key: String,
+    },
+    DisconnectModel {
+        slug: String,
+    },
+    SetModel {
+        value: String,
+        confirm_expensive_model: bool,
+    },
+    OpenSkills,
+    InstallSkill {
+        query: String,
+    },
+    OpenPlugins,
+    TogglePlugin {
+        key: String,
+        enable: bool,
+    },
+    OpenMcp,
+    AddMcp {
+        name: String,
+        preset: String,
+    },
+    RemoveMcp {
+        name: String,
+    },
 }
 
 pub enum CurrentScreen {

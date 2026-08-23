@@ -167,6 +167,18 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
             }
             None
         }
+        "model" if rest.is_empty() => Some(ScreenAction::OpenModel { refresh: false }),
+        "model" if rest == "--refresh" => Some(ScreenAction::OpenModel { refresh: true }),
+        "model" => Some(ScreenAction::SetModel {
+            value: rest.to_string(),
+            confirm_expensive_model: false,
+        }),
+        "skills" if rest.is_empty() => Some(ScreenAction::OpenSkills),
+        "skills" if rest.starts_with("install ") => Some(ScreenAction::InstallSkill {
+            query: rest["install ".len()..].trim().to_string(),
+        }),
+        "plugins" if rest.is_empty() => Some(ScreenAction::OpenPlugins),
+        "mcp" => Some(ScreenAction::OpenMcp),
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));
@@ -187,6 +199,12 @@ fn split_cmd(cmd: &str) -> (&str, &str) {
 
 impl Chat {
     pub(crate) fn handle_paste_inner(&mut self, text: String) -> Option<ScreenAction> {
+        if let super::Overlay::Model(picker) = &mut self.overlay {
+            if picker.stage == super::model_picker::ModelStage::Key && !picker.key_saving {
+                picker.key_input.push_str(text.trim());
+                return None;
+            }
+        }
         if self.overlay.is_open() || self.slash.is_active() || self.confirm_quit {
             return None;
         }

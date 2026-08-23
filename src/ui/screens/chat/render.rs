@@ -469,11 +469,7 @@ fn tool_chip(name: &str, state: &str, hint: &str, width: usize) -> Line<'static>
         label = ellipsize(&label, budget);
     }
     paint_card(
-        Line::from(vec![
-            b("╭"),
-            Span::styled(label, theme::tool()),
-            b(" ╮"),
-        ]),
+        Line::from(vec![b("╭"), Span::styled(label, theme::tool()), b(" ╮")]),
         true,
     )
 }

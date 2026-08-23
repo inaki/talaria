@@ -10,8 +10,10 @@ use crate::gateway::{GatewayClient, GatewayError};
 
 use super::parse::{
     map_gateway_event, ordinary_submit_params, parse_active_list, parse_catalog,
-    parse_command_result, parse_delegation, parse_saved_list, parse_spawn_trees,
-    parse_survivor_user_row_ids, parse_transcript_messages, rewind_submit_params,
+    parse_command_result, parse_config_set, parse_delegation, parse_mcp_catalog, parse_mcp_servers,
+    parse_model_disconnected, parse_model_key_saved, parse_model_options, parse_plugins_list,
+    parse_saved_list, parse_skills_list, parse_spawn_trees, parse_survivor_user_row_ids,
+    parse_transcript_messages, resize_params, rewind_submit_params,
 };
 use super::{SessionApi, SessionCommand, SessionEvent};
 
@@ -294,9 +296,15 @@ async fn handle_live_cmd(
             Ok(())
         }
         SessionCommand::Resize { cols, rows } => {
-            client
-                .request("terminal.resize", json!({ "cols": cols, "rows": rows }))
-                .await?;
+            // Gateway `_sess_nowait` looks up params.session_id. A missing
+            // id is "session not found" — and a drag-resize would spam that
+            // into the transcript if we treated it as a hard error.
+            let Some(sid) = session_id.as_deref() else {
+                return Ok(());
+            };
+            let _ = client
+                .request("terminal.resize", resize_params(sid, cols, rows))
+                .await;
             Ok(())
         }
         SessionCommand::Close => {
@@ -400,6 +408,284 @@ async fn handle_live_cmd(
                         .unwrap_or(&path)
                 )))
                 .await;
+            Ok(())
+        }
+        SessionCommand::FetchModelOptions { refresh } => {
+            let mut params = json!({ "include_unconfigured": true });
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            if refresh {
+                params["refresh"] = json!(true);
+            }
+            match client.request("model.options", params).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_model_options(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::ModelOptions {
+                            providers: Vec::new(),
+                            model: String::new(),
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::SaveModelKey { slug, api_key } => {
+            let mut params = json!({ "slug": slug, "api_key": api_key });
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            match client.request("model.save_key", params).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_model_key_saved(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::ModelKeySaved {
+                            provider: crate::session::ModelProvider {
+                                slug,
+                                name: String::new(),
+                                authenticated: false,
+                                is_current: false,
+                                auth_type: String::new(),
+                                key_env: None,
+                                models: Vec::new(),
+                                total_models: 0,
+                                warning: None,
+                            },
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::DisconnectModel { slug } => {
+            let mut params = json!({ "slug": slug });
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            match client.request("model.disconnect", params).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_model_disconnected(slug, &result)).await;
+                }
+                Err(_) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::ModelDisconnected { slug, ok: false })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::SetConfig {
+            key,
+            value,
+            confirm_expensive_model,
+        } => {
+            let mut params = json!({
+                "key": key,
+                "value": value,
+                "confirm_expensive_model": confirm_expensive_model,
+            });
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            let result = client.request("config.set", params).await?;
+            let _ = ev_tx.send(parse_config_set(key, &result)).await;
+            Ok(())
+        }
+        SessionCommand::FetchSkills => {
+            match client
+                .request("skills.manage", json!({ "action": "list" }))
+                .await
+            {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_skills_list(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::SkillsList {
+                            groups: Vec::new(),
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::InstallSkill { query } => {
+            match client
+                .request(
+                    "skills.manage",
+                    json!({ "action": "install", "query": query }),
+                )
+                .await
+            {
+                Ok(result) => {
+                    let ok = result
+                        .get("installed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    let name = result
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&query)
+                        .to_string();
+                    let _ = ev_tx
+                        .send(SessionEvent::SkillInstalled {
+                            name,
+                            ok,
+                            error: None,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::SkillInstalled {
+                            name: query,
+                            ok: false,
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::FetchPlugins => {
+            match client
+                .request("plugins.manage", json!({ "action": "list" }))
+                .await
+            {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_plugins_list(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::PluginsList {
+                            plugins: Vec::new(),
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::TogglePlugin { key, enable } => {
+            match client
+                .request(
+                    "plugins.manage",
+                    json!({ "action": "toggle", "key": key, "enable": enable }),
+                )
+                .await
+            {
+                Ok(result) => {
+                    let plugin = result
+                        .get("plugin")
+                        .and_then(super::parse::parse_plugin_row);
+                    let _ = ev_tx
+                        .send(SessionEvent::PluginToggled {
+                            plugin,
+                            ok: result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true),
+                        })
+                        .await;
+                }
+                Err(_) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::PluginToggled {
+                            plugin: None,
+                            ok: false,
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::FetchMcpServers => {
+            match client.request("mcp.servers.list", json!({})).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_mcp_servers(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpServers {
+                            servers: Vec::new(),
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::FetchMcpCatalog => {
+            match client.request("mcp.catalog", json!({})).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_mcp_catalog(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpCatalog {
+                            servers: Vec::new(),
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::AddMcp { name, preset } => {
+            match client
+                .request("mcp.servers.add", json!({ "name": name, "preset": preset }))
+                .await
+            {
+                Ok(_) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpChanged {
+                            name,
+                            ok: true,
+                            error: None,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpChanged {
+                            name,
+                            ok: false,
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::RemoveMcp { name } => {
+            match client
+                .request("mcp.servers.remove", json!({ "name": name }))
+                .await
+            {
+                Ok(_) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpChanged {
+                            name,
+                            ok: true,
+                            error: None,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::McpChanged {
+                            name,
+                            ok: false,
+                            error: Some(crate::user_messages::gateway_failed(&e)),
+                        })
+                        .await;
+                }
+            }
             Ok(())
         }
     }

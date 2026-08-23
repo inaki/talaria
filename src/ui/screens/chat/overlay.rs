@@ -7,6 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
+use super::hubs::{self, McpHub, PluginsHub, SkillsHub};
+use super::model_picker::{self, ModelPicker};
 use crate::session::{ActiveSession, RewindTurn, SavedSession, SpawnTreeEntry, SubagentRow};
 use crate::theme;
 use crate::ui::keys::{is_ctrl_c, typed_char};
@@ -76,6 +78,10 @@ pub enum Overlay {
         selected: usize,
         saved_id: &'static str,
     },
+    Model(ModelPicker),
+    Skills(SkillsHub),
+    Plugins(PluginsHub),
+    Mcp(McpHub),
 }
 
 impl Overlay {
@@ -422,6 +428,35 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
             }
             None
         }
+        Overlay::Model(picker) => match model_picker::on_key(picker, key) {
+            model_picker::ModelKey::None => None,
+            model_picker::ModelKey::Close => {
+                overlay.close();
+                None
+            }
+            model_picker::ModelKey::Action(action) => Some(action),
+        },
+        Overlay::Skills(hub) => match hubs::skills_key(hub, key) {
+            (hubs::HubKey::Close, _) => {
+                overlay.close();
+                None
+            }
+            (hubs::HubKey::None, action) => action,
+        },
+        Overlay::Plugins(hub) => match hubs::plugins_key(hub, key) {
+            (hubs::HubKey::Close, _) => {
+                overlay.close();
+                None
+            }
+            (hubs::HubKey::None, action) => action,
+        },
+        Overlay::Mcp(hub) => match hubs::mcp_key(hub, key) {
+            (hubs::HubKey::Close, _) => {
+                overlay.close();
+                None
+            }
+            (hubs::HubKey::None, action) => action,
+        },
     }
 }
 
@@ -660,6 +695,9 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/agents                live subagents (Enter interrupts)"),
                 Line::from("/trees                 spawn-tree snapshots"),
                 Line::from("/rewind               regenerate from a user turn (row_id)"),
+                Line::from("/model                provider + model picker"),
+                Line::from("/skills  /plugins     install / toggle"),
+                Line::from("/mcp                  add / remove MCP servers"),
                 Line::from("/theme                gold / hermes / github palettes"),
                 Line::from("/clear  /quit"),
                 Line::from("Ctrl+O           expand last tool card"),
@@ -671,7 +709,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ];
-            paint_modal(f, area, " help ", lines, 21);
+            paint_modal(f, area, " help ", lines, 23);
         }
         Overlay::Agents {
             agents,
@@ -813,6 +851,26 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )));
             }
             paint_modal(f, area, " theme ", lines, 14);
+        }
+        Overlay::Model(picker) => {
+            let lines = model_picker::lines(picker);
+            let h = (lines.len() as u16).saturating_add(2).clamp(8, 24);
+            paint_modal(f, area, " model ", lines, h);
+        }
+        Overlay::Skills(hub) => {
+            let lines = hubs::skills_lines(hub);
+            let h = (lines.len() as u16).saturating_add(2).clamp(8, 22);
+            paint_modal(f, area, " skills ", lines, h);
+        }
+        Overlay::Plugins(hub) => {
+            let lines = hubs::plugins_lines(hub);
+            let h = (lines.len() as u16).saturating_add(2).clamp(8, 22);
+            paint_modal(f, area, " plugins ", lines, h);
+        }
+        Overlay::Mcp(hub) => {
+            let lines = hubs::mcp_lines(hub);
+            let h = (lines.len() as u16).saturating_add(2).clamp(8, 22);
+            paint_modal(f, area, " mcp ", lines, h);
         }
     }
 }
