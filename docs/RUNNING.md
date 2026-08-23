@@ -3,8 +3,8 @@
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/inaki/hermes-rust/main/install.sh | bash
-brew install --HEAD --formula https://raw.githubusercontent.com/inaki/hermes-rust/main/dist/homebrew/talaria.rb
+curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
+brew install inaki/talaria/talaria
 ```
 
 The UI binary is `talaria`. Live mode uses the same `~/.hermes` as `hermes --tui`. Chrome (skin, composer history, `/custom`) is `~/.talaria/`.

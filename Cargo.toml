@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 description = "Unofficial native ratatui host for Hermes Agent (tui_gateway)"
 authors = ["inaki"]
-repository = "https://github.com/inaki/hermes-rust"
+repository = "https://github.com/inaki/talaria"
 readme = "README.md"
 
 [[bin]]

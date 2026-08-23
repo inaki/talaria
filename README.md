@@ -51,11 +51,11 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 
 ```bash
 # curl (GitHub Releases)
-curl -fsSL https://raw.githubusercontent.com/inaki/hermes-rust/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 # pin:  curl … | bash -s -- v0.1.0
 
-# Homebrew (builds from git HEAD until the first tagged release)
-brew install --HEAD --formula https://raw.githubusercontent.com/inaki/hermes-rust/main/dist/homebrew/talaria.rb
+# Homebrew (tap; builds from git until a stable bottle exists)
+brew install inaki/talaria/talaria
 ```
 
 Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`.
@@ -65,8 +65,8 @@ Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Overri
 From source:
 
 ```bash
-git clone git@github.com:inaki/hermes-rust.git
-cd hermes-rust
+git clone git@github.com:inaki/talaria.git
+cd talaria
 cargo run -- --theme default
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install a prebuilt talaria binary from GitHub Releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/inaki/hermes-rust/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 #   curl -fsSL ... | bash -s -- v0.1.0
 #
 # Does not install Hermes Agent. Live mode still needs ~/.hermes (shared).
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-REPO="${TALARIA_REPO:-${HERMES_RUST_REPO:-inaki/hermes-rust}}"
+REPO="${TALARIA_REPO:-${HERMES_RUST_REPO:-inaki/talaria}}"
 BIN_NAME="talaria"
 BIN_DIR="${TALARIA_BIN_DIR:-${HERMES_RUST_BIN_DIR:-$HOME/.local/bin}}"
 VERSION="${1:-${TALARIA_VERSION:-${HERMES_RUST_VERSION:-latest}}}"

@@ -1,15 +1,13 @@
-# Homebrew formula for a tap (inaki/talaria) or local install:
-#   brew install --HEAD --formula dist/homebrew/talaria.rb
+# Homebrew formula. Live copy for the tap:
+#   brew install inaki/talaria/talaria
 #
-# After tagging v0.1.0, set `url` + `sha256` to the GitHub archive (or a
-# release tarball) and `brew bump-formula-pr` on each release.
-#
-# GitHub repo is still inaki/hermes-rust until renamed; the binary is talaria.
+# After tagging, set `url` + `sha256` to the GitHub archive.
 class Talaria < Formula
   desc "Unofficial native ratatui TUI host for Hermes Agent"
-  homepage "https://github.com/inaki/hermes-rust"
+  homepage "https://github.com/inaki/talaria"
   version "0.1.0"
-  head "https://github.com/inaki/hermes-rust.git", branch: "main"
+  head "https://github.com/inaki/talaria.git", branch: "main"
+  license "MIT"
 
   depends_on "rust" => :build
 
