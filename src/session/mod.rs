@@ -13,7 +13,7 @@ pub(crate) use parse::rewind_turns_from_messages;
 pub use types::{
     ActiveSession, McpCatalogEntry, McpServer, ModelProvider, PluginRow, RewindTurn, SavedSession,
     SessionCommand, SessionEvent, SlashCommand, SpawnTreeEntry, SubagentKind, SubagentRow,
-    TranscriptMessage,
+    TranscriptMessage, UsageSnapshot,
 };
 
 pub trait SessionApi {

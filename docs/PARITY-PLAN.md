@@ -17,7 +17,7 @@ Sequencing for remaining gaps. Status table: [PARITY.md](./PARITY.md).
 | Item | Exit |
 |------|------|
 | Spawn-tree picker | `/trees` → `spawn_tree.list`; Enter loads via `spawn_tree.load` if the dump shows a path |
-| Subagent steer | later (`subagent.steer`) |
+| Subagent steer | **Landed.** `/agents` **s** → `subagent.steer` |
 
 ## Track C — History edit (this slice)
 

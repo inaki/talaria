@@ -19,7 +19,7 @@ pub trait Screen {
         None
     }
     fn tick(&mut self);
-    fn key_hints(&self) -> KeyHints<'static>;
+    fn key_hints(&self) -> KeyHints;
 }
 
 #[derive(Debug)]
@@ -108,6 +108,18 @@ pub enum ScreenAction {
     },
     RemoveMcp {
         name: String,
+    },
+    SteerSubagent {
+        subagent_id: String,
+        text: String,
+    },
+    OpenUsage,
+    NewSession,
+    CloseLive {
+        session_id: String,
+    },
+    ShellExec {
+        command: String,
     },
 }
 

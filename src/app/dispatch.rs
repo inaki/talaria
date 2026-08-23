@@ -11,6 +11,13 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
                 session.send(SessionCommand::Submit { text });
             }
         }
+        ScreenAction::ShellExec { command } => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &app.screen;
+            let cwd = chat.cwd.clone();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::ShellExec { command, cwd });
+            }
+        }
         ScreenAction::Interrupt => {
             if let Some(session) = &app.session {
                 session.send(SessionCommand::Interrupt);
@@ -94,6 +101,42 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
         ScreenAction::InterruptSubagent { subagent_id } => {
             if let Some(session) = &app.session {
                 session.send(SessionCommand::InterruptSubagent { subagent_id });
+            }
+        }
+        ScreenAction::SteerSubagent { subagent_id, text } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::SteerSubagent { subagent_id, text });
+            }
+        }
+        ScreenAction::OpenUsage => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_usage();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchUsage);
+            }
+        }
+        ScreenAction::NewSession => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            let cwd = chat.cwd.clone();
+            chat.begin_new_session();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::Create {
+                    cwd: Some(cwd),
+                    cols: app.last_cols,
+                });
+            }
+        }
+        ScreenAction::CloseLive { session_id } => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            if chat.session_id == session_id {
+                chat.begin_new_session();
+            }
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::CloseSession {
+                    session_id,
+                    cols: app.last_cols,
+                });
+                session.send(SessionCommand::ListActive);
             }
         }
         ScreenAction::AttachImage { path } => {

@@ -106,6 +106,19 @@ pub enum SessionCommand {
     RemoveMcp {
         name: String,
     },
+    SteerSubagent {
+        subagent_id: String,
+        text: String,
+    },
+    FetchUsage,
+    CloseSession {
+        session_id: String,
+        cols: u16,
+    },
+    ShellExec {
+        command: String,
+        cwd: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +297,13 @@ pub enum SessionEvent {
         ok: bool,
         error: Option<String>,
     },
+    Usage(UsageSnapshot),
+    ShellResult {
+        command: String,
+        output: String,
+        code: Option<i32>,
+        duration_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -329,6 +349,20 @@ pub struct ActiveSession {
     pub title: Option<String>,
     pub status: String,
     pub current: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UsageSnapshot {
+    pub calls: u64,
+    pub input: u64,
+    pub output: u64,
+    pub total: u64,
+    pub context_used: u64,
+    pub context_max: u64,
+    pub context_percent: u64,
+    pub cost_usd: Option<f64>,
+    pub model: String,
+    pub credits_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

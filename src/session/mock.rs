@@ -425,6 +425,63 @@ async fn mock_loop(
                     })
                     .await;
             }
+            SessionCommand::ShellExec { command, cwd } => {
+                let r = crate::shell::run_shell_command(&command, &cwd);
+                let _ = ev_tx
+                    .send(SessionEvent::ShellResult {
+                        command: r.command,
+                        output: r.output,
+                        code: r.code,
+                        duration_ms: r.duration_ms,
+                    })
+                    .await;
+            }
+            SessionCommand::Create { .. } => {
+                let _ = ev_tx
+                    .send(SessionEvent::SessionCreated {
+                        session_id: "mock-session-new".into(),
+                        stored_session_id: Some("mock-store-new".into()),
+                        info: Some(json!({"model": "mock-model"})),
+                    })
+                    .await;
+            }
+            SessionCommand::FetchUsage => {
+                let _ = ev_tx
+                    .send(SessionEvent::Usage(crate::session::UsageSnapshot {
+                        calls: 2,
+                        input: 800,
+                        output: 120,
+                        total: 920,
+                        context_used: 4000,
+                        context_max: 128000,
+                        context_percent: 3,
+                        cost_usd: Some(0.01),
+                        model: "mock-model".into(),
+                        credits_lines: vec!["$10.00 remaining".into()],
+                    }))
+                    .await;
+            }
+            SessionCommand::SteerSubagent { subagent_id, text } => {
+                let _ = ev_tx
+                    .send(SessionEvent::Status(format!(
+                        "subagent {subagent_id} steer queued: {text}"
+                    )))
+                    .await;
+            }
+            SessionCommand::CloseSession {
+                session_id: sid, ..
+            } => {
+                let _ = ev_tx
+                    .send(SessionEvent::Status(format!("closed {sid}")))
+                    .await;
+                let _ = ev_tx
+                    .send(SessionEvent::SessionCreated {
+                        session_id: "mock-session-new".into(),
+                        stored_session_id: Some("mock-store-new".into()),
+                        info: Some(json!({"model": "mock-model"})),
+                    })
+                    .await;
+            }
             SessionCommand::Shutdown | SessionCommand::Close => break,
             _ => {}
         }

@@ -71,6 +71,21 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
             if let Some(cmd) = parse_slash_submit(&text) {
                 return local_or_dispatch(chat, &cmd);
             }
+            if text.trim() == "!" {
+                chat.notice = Some("Usage: !<command>  e.g. !pwd".into());
+                return None;
+            }
+            if let Some(cmd) = crate::shell::command_from_input(&text) {
+                let cmd = cmd.to_string();
+                chat.items.push(super::TimelineItem::Shell {
+                    command: cmd.clone(),
+                    output: String::new(),
+                    code: None,
+                    running: true,
+                });
+                chat.scroll_to_bottom();
+                return Some(ScreenAction::ShellExec { command: cmd });
+            }
             if chat.streaming || chat.thinking {
                 chat.items
                     .push(super::TimelineItem::Status(format!("steer: {text}")));
@@ -138,6 +153,7 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         }
         "quit" | "exit" => Some(ScreenAction::Quit),
         "resume" if rest.is_empty() => Some(ScreenAction::OpenSessions),
+        "sessions" if rest == "new" => Some(ScreenAction::NewSession),
         "sessions" => Some(ScreenAction::OpenSessions),
         "resume" => Some(ScreenAction::ResumeSaved {
             session_id: rest.to_string(),
@@ -181,6 +197,7 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         }),
         "plugins" if rest.is_empty() => Some(ScreenAction::OpenPlugins),
         "mcp" => Some(ScreenAction::OpenMcp),
+        "usage" => Some(ScreenAction::OpenUsage),
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));

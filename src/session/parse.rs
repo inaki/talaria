@@ -8,6 +8,7 @@ use crate::protocol::{delta_text, is_unhandled_v1, WireEvent};
 use super::types::{
     ActiveSession, McpCatalogEntry, McpServer, ModelProvider, PluginRow, RewindTurn, SavedSession,
     SessionEvent, SlashCommand, SpawnTreeEntry, SubagentKind, SubagentRow, TranscriptMessage,
+    UsageSnapshot,
 };
 
 pub(crate) fn ordinary_submit_params(session_id: &str, text: &str) -> Value {
@@ -793,6 +794,40 @@ pub(super) fn parse_mcp_catalog(result: &Value) -> SessionEvent {
     }
 }
 
+pub(super) fn parse_usage(result: &Value) -> SessionEvent {
+    let num = |k: &str| -> u64 {
+        result
+            .get(k)
+            .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+            .unwrap_or(0)
+    };
+    let credits = result
+        .get("credits_lines")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    SessionEvent::Usage(UsageSnapshot {
+        calls: num("calls"),
+        input: num("input"),
+        output: num("output"),
+        total: num("total"),
+        context_used: num("context_used"),
+        context_max: num("context_max"),
+        context_percent: num("context_percent"),
+        cost_usd: result.get("cost_usd").and_then(|v| v.as_f64()),
+        model: result
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        credits_lines: credits,
+    })
+}
+
 pub(super) fn parse_delegation(result: &Value) -> SessionEvent {
     let agents = result
         .get("active")
@@ -961,6 +996,29 @@ mod tests {
         assert_eq!(p["session_id"], "sess-1");
         assert_eq!(p["cols"], 120);
         assert_eq!(p["rows"], 40);
+    }
+
+    #[test]
+    fn parse_usage_reads_counts() {
+        let ev = parse_usage(&json!({
+            "calls": 3,
+            "input": 1000,
+            "output": 40,
+            "total": 1040,
+            "context_percent": 12,
+            "cost_usd": 0.02,
+            "model": "mock",
+            "credits_lines": ["$10 remaining"]
+        }));
+        match ev {
+            SessionEvent::Usage(u) => {
+                assert_eq!(u.calls, 3);
+                assert_eq!(u.total, 1040);
+                assert_eq!(u.credits_lines.len(), 1);
+                assert_eq!(u.cost_usd, Some(0.02));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

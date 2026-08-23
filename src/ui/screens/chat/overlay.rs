@@ -9,9 +9,11 @@ use ratatui::Frame;
 
 use super::hubs::{self, McpHub, PluginsHub, SkillsHub};
 use super::model_picker::{self, ModelPicker};
-use crate::session::{ActiveSession, RewindTurn, SavedSession, SpawnTreeEntry, SubagentRow};
+use crate::session::{
+    ActiveSession, RewindTurn, SavedSession, SpawnTreeEntry, SubagentRow, UsageSnapshot,
+};
 use crate::theme;
-use crate::ui::keys::{is_ctrl_c, typed_char};
+use crate::ui::keys::{is_ctrl_c, is_ctrl_d, is_ctrl_n, typed_char};
 use crate::ui::screens::ScreenAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +64,13 @@ pub enum Overlay {
         agents: Vec<SubagentRow>,
         selected: usize,
         loading: bool,
+        steering: bool,
+        draft: String,
+    },
+    Usage {
+        loading: bool,
+        snapshot: Option<UsageSnapshot>,
+        error: Option<String>,
     },
     SpawnTrees {
         entries: Vec<SpawnTreeEntry>,
@@ -285,6 +294,16 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 *selected = (*selected + 1).min(len - 1);
                 return None;
             }
+            if is_ctrl_n(&key) {
+                overlay.close();
+                return Some(ScreenAction::NewSession);
+            }
+            if is_ctrl_d(&key) && matches!(tab, SessionTab::Live) {
+                if let Some(s) = live.get(*selected) {
+                    let id = s.id.clone();
+                    return Some(ScreenAction::CloseLive { session_id: id });
+                }
+            }
             if key.code == KeyCode::Enter && !*loading && len > 0 {
                 let i = *selected;
                 let action = match tab {
@@ -310,7 +329,34 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
             agents,
             selected,
             loading,
+            steering,
+            draft,
         } => {
+            if *steering {
+                if key.code == KeyCode::Esc {
+                    *steering = false;
+                    draft.clear();
+                    return None;
+                }
+                if key.code == KeyCode::Backspace {
+                    draft.pop();
+                    return None;
+                }
+                if key.code == KeyCode::Enter {
+                    if draft.trim().is_empty() {
+                        return None;
+                    }
+                    let text = std::mem::take(draft);
+                    let id = agents.get(*selected).map(|a| a.id.clone());
+                    *steering = false;
+                    overlay.close();
+                    return id.map(|subagent_id| ScreenAction::SteerSubagent { subagent_id, text });
+                }
+                if let Some(c) = typed_char(&key) {
+                    draft.push(c);
+                }
+                return None;
+            }
             if key.code == KeyCode::Esc {
                 overlay.close();
                 return None;
@@ -323,12 +369,25 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 *selected = (*selected + 1).min(agents.len() - 1);
                 return None;
             }
+            if matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')) && !*loading {
+                if agents.get(*selected).is_some() {
+                    *steering = true;
+                    draft.clear();
+                }
+                return None;
+            }
             if key.code == KeyCode::Enter && !*loading {
                 if let Some(a) = agents.get(*selected) {
                     let id = a.id.clone();
                     overlay.close();
                     return Some(ScreenAction::InterruptSubagent { subagent_id: id });
                 }
+            }
+            None
+        }
+        Overlay::Usage { .. } => {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+                overlay.close();
             }
             None
         }
@@ -612,7 +671,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
             let mut lines = vec![
                 Line::from(Span::styled(tab_line, theme::accent())),
                 Line::from(Span::styled(
-                    "Tab switches lists  ·  Enter opens  ·  Esc closes",
+                    "Tab lists  ·  Enter opens  ·  ^n new  ·  ^d close live  ·  Esc",
                     theme::dim(),
                 )),
                 Line::from(""),
@@ -684,6 +743,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from(Span::styled("hermes-rust", theme::accent())),
                 Line::from(""),
                 Line::from("Enter            send (steer if a turn is running)"),
+                Line::from("!cmd             run a local shell command (no model turn)"),
                 Line::from("Shift+Enter      newline"),
                 Line::from("/                command catalog"),
                 Line::from("Esc              interrupt / dismiss overlay"),
@@ -692,7 +752,8 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from(""),
                 Line::from("/sessions  /resume     saved vs live sessions"),
                 Line::from("/branch                fork this session"),
-                Line::from("/agents                live subagents (Enter interrupts)"),
+                Line::from("/agents                subagents (Enter kill · s steer)"),
+                Line::from("/usage                 tokens and cost"),
                 Line::from("/trees                 spawn-tree snapshots"),
                 Line::from("/rewind               regenerate from a user turn (row_id)"),
                 Line::from("/model                provider + model picker"),
@@ -700,7 +761,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/mcp                  add / remove MCP servers"),
                 Line::from("/skin                 github / default / ares / …"),
                 Line::from("/clear  /quit"),
-                Line::from("Ctrl+O           expand last tool card"),
+                Line::from("Ctrl+O / click   expand a tool card"),
                 Line::from("Ctrl+V           paste clipboard image (gateway)"),
                 Line::from(""),
                 Line::from(Span::styled(
@@ -715,10 +776,12 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
             agents,
             selected,
             loading,
+            steering,
+            draft,
         } => {
             let mut lines = vec![
                 Line::from(Span::styled(
-                    "Enter interrupts the selected child",
+                    "Enter interrupt  ·  s steer  ·  Esc close",
                     theme::dim(),
                 )),
                 Line::from(""),
@@ -740,7 +803,80 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                     },
                 )));
             }
-            paint_modal(f, area, " agents ", lines, 14);
+            if *steering {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("steer: {draft}▍"),
+                    theme::accent(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    "Enter send  ·  Esc cancel",
+                    theme::dim(),
+                )));
+            }
+            paint_modal(f, area, " agents ", lines, 16);
+        }
+        Overlay::Usage {
+            loading,
+            snapshot,
+            error,
+        } => {
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    "session usage",
+                    theme::accent().add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+            ];
+            if *loading {
+                lines.push(Line::from(Span::styled("loading…", theme::dim())));
+            }
+            if let Some(err) = error {
+                lines.push(Line::from(Span::styled(err.clone(), theme::error())));
+            }
+            if let Some(u) = snapshot {
+                if !u.model.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        format!("model  {}", u.model),
+                        theme::text(),
+                    )));
+                }
+                lines.push(Line::from(Span::styled(
+                    format!("calls  {}", u.calls),
+                    theme::text(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "tokens  {} in / {} out / {} total",
+                        u.input, u.output, u.total
+                    ),
+                    theme::text(),
+                )));
+                if u.context_max > 0 {
+                    lines.push(Line::from(Span::styled(
+                        format!(
+                            "context  {} / {}  ({}%)",
+                            u.context_used, u.context_max, u.context_percent
+                        ),
+                        theme::text(),
+                    )));
+                }
+                if let Some(c) = u.cost_usd {
+                    lines.push(Line::from(Span::styled(
+                        format!("cost  ${c:.4}"),
+                        theme::text(),
+                    )));
+                }
+                for line in &u.credits_lines {
+                    lines.push(Line::from(Span::styled(line.clone(), theme::dim())));
+                }
+                if u.calls == 0 && u.credits_lines.is_empty() {
+                    lines.push(Line::from(Span::styled("no API calls yet", theme::dim())));
+                }
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("Esc / Enter close", theme::dim())));
+            paint_modal(f, area, " usage ", lines, 16);
         }
         Overlay::SpawnTrees {
             entries,

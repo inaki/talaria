@@ -13,7 +13,7 @@ use super::parse::{
     parse_command_result, parse_config_set, parse_delegation, parse_mcp_catalog, parse_mcp_servers,
     parse_model_disconnected, parse_model_key_saved, parse_model_options, parse_plugins_list,
     parse_saved_list, parse_skills_list, parse_spawn_trees, parse_survivor_user_row_ids,
-    parse_transcript_messages, resize_params, rewind_submit_params,
+    parse_transcript_messages, parse_usage, resize_params, rewind_submit_params,
 };
 use super::{SessionApi, SessionCommand, SessionEvent};
 
@@ -116,33 +116,7 @@ async fn handle_live_cmd(
 ) -> Result<(), GatewayError> {
     match cmd {
         SessionCommand::Create { cwd, cols } => {
-            let mut params = json!({ "cols": cols });
-            if let Some(cwd) = cwd {
-                params["cwd"] = json!(cwd);
-            }
-            let result = client.request("session.create", params).await?;
-            let sid = result
-                .get("session_id")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            *session_id = Some(sid.clone());
-            let stored = result
-                .get("stored_session_id")
-                .and_then(|s| s.as_str())
-                .map(|s| s.to_string());
-            let info = result.get("info").cloned();
-            let _ = ev_tx
-                .send(SessionEvent::SessionCreated {
-                    session_id: sid,
-                    stored_session_id: stored,
-                    info,
-                })
-                .await;
-            if let Ok(catalog) = client.request("commands.catalog", json!({})).await {
-                let _ = ev_tx.send(parse_catalog(&catalog)).await;
-            }
-            Ok(())
+            create_session(client, session_id, cwd, cols, ev_tx).await
         }
         SessionCommand::Submit { text } => {
             if !*agent_ready && tokio::time::Instant::now() < ready_deadline {
@@ -351,6 +325,65 @@ async fn handle_live_cmd(
                 params["session_id"] = json!(sid);
             }
             client.request("subagent.interrupt", params).await?;
+            Ok(())
+        }
+        SessionCommand::SteerSubagent { subagent_id, text } => {
+            let mut params = json!({ "subagent_id": subagent_id, "text": text });
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            let result = client.request("subagent.steer", params).await?;
+            let status = result
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("queued");
+            let _ = ev_tx
+                .send(SessionEvent::Status(format!(
+                    "subagent {subagent_id} steer {status}"
+                )))
+                .await;
+            Ok(())
+        }
+        SessionCommand::FetchUsage => {
+            let mut params = json!({});
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            match client.request("session.usage", params).await {
+                Ok(result) => {
+                    let _ = ev_tx.send(parse_usage(&result)).await;
+                }
+                Err(e) => {
+                    let _ = ev_tx
+                        .send(SessionEvent::Error {
+                            message: crate::user_messages::gateway_failed(&e),
+                        })
+                        .await;
+                }
+            }
+            Ok(())
+        }
+        SessionCommand::CloseSession {
+            session_id: sid,
+            cols,
+        } => {
+            let _ = client
+                .request("session.close", json!({ "session_id": sid }))
+                .await;
+            let closing_current = session_id.as_deref() == Some(sid.as_str());
+            let _ = ev_tx
+                .send(SessionEvent::Status(format!("closed {sid}")))
+                .await;
+            if closing_current {
+                *session_id = None;
+                *agent_ready = false;
+                return create_session(client, session_id, None, cols, ev_tx).await;
+            }
+            Ok(())
+        }
+        SessionCommand::ShellExec { command, cwd } => {
+            let result = run_bang_command(&command, &cwd).await;
+            let _ = ev_tx.send(result).await;
             Ok(())
         }
         SessionCommand::AttachImage { path } => {
@@ -689,6 +722,103 @@ async fn handle_live_cmd(
             Ok(())
         }
     }
+}
+
+async fn run_bang_command(command: &str, cwd: &str) -> SessionEvent {
+    let mut cmd = {
+        #[cfg(windows)]
+        {
+            let mut c = tokio::process::Command::new("cmd");
+            c.arg("/C").arg(command);
+            c
+        }
+        #[cfg(not(windows))]
+        {
+            let mut c = tokio::process::Command::new("sh");
+            c.arg("-c").arg(command);
+            c
+        }
+    };
+    if !cwd.is_empty() {
+        cmd.current_dir(cwd);
+    }
+    cmd.kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let started = std::time::Instant::now();
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return SessionEvent::ShellResult {
+                command: command.to_string(),
+                output: format!("spawn error: {e}"),
+                code: Some(1),
+                duration_ms: started.elapsed().as_millis() as u64,
+            };
+        }
+    };
+    match tokio::time::timeout(
+        Duration::from_secs(crate::shell::TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) => SessionEvent::ShellResult {
+            command: command.to_string(),
+            output: crate::shell::format_output(&out.stdout, &out.stderr),
+            code: out.status.code(),
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+        Ok(Err(e)) => SessionEvent::ShellResult {
+            command: command.to_string(),
+            output: format!("spawn error: {e}"),
+            code: Some(1),
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+        Err(_) => SessionEvent::ShellResult {
+            command: command.to_string(),
+            output: format!("timed out after {}s", crate::shell::TIMEOUT_SECS),
+            code: Some(124),
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+    }
+}
+
+async fn create_session(
+    client: &GatewayClient,
+    session_id: &mut Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    ev_tx: &mpsc::Sender<SessionEvent>,
+) -> Result<(), GatewayError> {
+    let mut params = json!({ "cols": cols });
+    if let Some(cwd) = cwd {
+        params["cwd"] = json!(cwd);
+    }
+    let result = client.request("session.create", params).await?;
+    let sid = result
+        .get("session_id")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    *session_id = Some(sid.clone());
+    let stored = result
+        .get("stored_session_id")
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+    let info = result.get("info").cloned();
+    let _ = ev_tx
+        .send(SessionEvent::SessionCreated {
+            session_id: sid,
+            stored_session_id: stored,
+            info,
+        })
+        .await;
+    if let Ok(catalog) = client.request("commands.catalog", json!({})).await {
+        let _ = ev_tx.send(parse_catalog(&catalog)).await;
+    }
+    Ok(())
 }
 
 async fn do_submit(

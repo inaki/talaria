@@ -26,6 +26,10 @@ pub fn is_ctrl_d(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
+pub fn is_ctrl_n(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
 pub fn is_ctrl_g(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL))
 }

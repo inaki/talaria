@@ -73,9 +73,12 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
         draw_splash(chat, f, area);
         return;
     }
+    chat.transcript_area = area;
+    chat.tool_hits.clear();
     let mut lines: Vec<Line> = Vec::new();
     let col_w = area.width.max(12);
-    for item in &chat.items {
+    for (i, item) in chat.items.iter().enumerate() {
+        let hit_start = lines.len() as u16;
         match item {
             TimelineItem::User { text: t, .. } => {
                 let mut first = true;
@@ -137,8 +140,20 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     } else {
                         result.lines().next().unwrap_or("")
                     };
+                    let selected = chat.selected_tool == Some(i);
                     lines.push(tool_chip(name, state, hint, panel_width(col_w)));
-                    lines.push(Line::from(Span::styled("  Ctrl+O expand", theme::dim())));
+                    lines.push(Line::from(Span::styled(
+                        if selected {
+                            "  click / Ctrl+O collapse-or-expand  (selected)"
+                        } else {
+                            "  click or Ctrl+O expand"
+                        },
+                        if selected {
+                            theme::accent()
+                        } else {
+                            theme::dim()
+                        },
+                    )));
                 } else {
                     let mut body: Vec<Line> = Vec::new();
                     if !args.is_empty() {
@@ -155,7 +170,14 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     if let Some(err) = error {
                         body.push(Line::from(Span::styled(err.clone(), theme::error())));
                     }
-                    body.push(Line::from(Span::styled("Ctrl+O collapse", theme::dim())));
+                    body.push(Line::from(Span::styled(
+                        if chat.selected_tool == Some(i) {
+                            "click / Ctrl+O collapse  (selected)"
+                        } else {
+                            "click or Ctrl+O collapse"
+                        },
+                        theme::dim(),
+                    )));
                     lines.extend(rounded_panel(
                         vec![Span::styled(format!(" ▸ {name}  [{state}]"), theme::tool())],
                         body,
@@ -179,6 +201,42 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     theme::tool(),
                 )));
             }
+            TimelineItem::Shell {
+                command,
+                output,
+                code,
+                running,
+            } => {
+                let title = if *running {
+                    format!(" $ {command}  [running]")
+                } else {
+                    format!(
+                        " $ {command}  [{}]",
+                        code.map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+                    )
+                };
+                let body: Vec<Line> = if output.is_empty() {
+                    Vec::new()
+                } else {
+                    output
+                        .split('\n')
+                        .take(40)
+                        .map(|l| Line::from(Span::styled(l.to_string(), theme::text())))
+                        .collect()
+                };
+                lines.extend(rounded_panel(
+                    vec![Span::styled(title, theme::tool())],
+                    body,
+                    panel_width(col_w),
+                    *running,
+                    true,
+                ));
+                lines.push(Line::from(""));
+            }
+        }
+        if matches!(item, TimelineItem::Tool { .. }) {
+            chat.tool_hits
+                .push((hit_start, (lines.len() as u16).saturating_sub(hit_start), i));
         }
     }
 
@@ -585,7 +643,7 @@ fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {
         vec![Line::from(vec![
             Span::styled(prefix, accent),
             Span::styled(" ", theme::cursor_block_style()),
-            Span::styled("Ask Hermes…  (/ for commands)", theme::dim()),
+            Span::styled("Ask Hermes…", theme::dim()),
         ])]
     } else {
         composer_lines(

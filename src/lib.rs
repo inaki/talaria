@@ -10,6 +10,7 @@ pub mod logging;
 pub mod paths;
 pub mod protocol;
 pub mod session;
+pub mod shell;
 pub mod theme;
 pub mod ui;
 pub mod user_messages;

@@ -1,6 +1,6 @@
 //! Chat screen. State lives here so child modules can touch private fields.
 
-use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
@@ -49,6 +49,12 @@ pub enum TimelineItem {
         id: String,
         label: String,
     },
+    Shell {
+        command: String,
+        output: String,
+        code: Option<i32>,
+        running: bool,
+    },
 }
 
 pub struct Chat {
@@ -74,6 +80,10 @@ pub struct Chat {
     pub(crate) release_date: String,
     pub(crate) tools: Vec<(String, Vec<String>)>,
     pub(crate) skills: Vec<(String, Vec<String>)>,
+    pub(crate) selected_tool: Option<usize>,
+    pub(crate) transcript_area: ratatui::layout::Rect,
+    /// (start_row, len, item_index) for clickable tool cards in the transcript.
+    pub(crate) tool_hits: Vec<(u16, u16, usize)>,
 }
 
 impl Chat {
@@ -104,6 +114,9 @@ impl Chat {
             release_date: String::new(),
             tools: Vec::new(),
             skills: Vec::new(),
+            selected_tool: None,
+            transcript_area: ratatui::layout::Rect::default(),
+            tool_hits: Vec::new(),
         }
     }
 
@@ -121,6 +134,14 @@ impl Chat {
                 stored_session_id,
                 info,
             } => {
+                if self.session_id != session_id
+                    && self.session_id != "—"
+                    && !self.items.is_empty()
+                    && self.notice.as_deref() == Some("new session…")
+                {
+                    self.items.clear();
+                    self.selected_tool = None;
+                }
                 self.session_id = session_id;
                 if let Some(s) = stored_session_id {
                     self.stored_session_id = s;
@@ -556,6 +577,57 @@ impl Chat {
                 }
                 self.scroll_to_bottom();
             }
+            SessionEvent::ShellResult {
+                command,
+                output,
+                code,
+                duration_ms,
+            } => {
+                let body = if duration_ms > 0 {
+                    format!("{output}\n({duration_ms}ms)")
+                } else {
+                    output
+                };
+                let mut found = false;
+                for item in self.items.iter_mut().rev() {
+                    if let TimelineItem::Shell {
+                        command: c,
+                        output: o,
+                        code: k,
+                        running,
+                    } = item
+                    {
+                        if *running && *c == command {
+                            *o = body.clone();
+                            *k = code;
+                            *running = false;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if !found {
+                    self.items.push(TimelineItem::Shell {
+                        command,
+                        output: body,
+                        code,
+                        running: false,
+                    });
+                }
+                self.scroll_to_bottom();
+            }
+            SessionEvent::Usage(snapshot) => {
+                if let Overlay::Usage {
+                    loading,
+                    snapshot: slot,
+                    error,
+                } = &mut self.overlay
+                {
+                    *loading = false;
+                    *error = None;
+                    *slot = Some(snapshot);
+                }
+            }
             SessionEvent::Delegation { agents } => {
                 self.agents = agents.clone();
                 if let Overlay::Agents {
@@ -892,15 +964,47 @@ impl Chat {
     }
 
     pub fn toggle_last_tool(&mut self) {
-        if let Some(i) = self
-            .items
-            .iter()
-            .rposition(|it| matches!(it, TimelineItem::Tool { .. }))
-        {
-            if let TimelineItem::Tool { expanded, .. } = &mut self.items[i] {
-                *expanded = !*expanded;
-            }
+        let i = self
+            .selected_tool
+            .filter(|&i| matches!(self.items.get(i), Some(TimelineItem::Tool { .. })))
+            .or_else(|| {
+                self.items
+                    .iter()
+                    .rposition(|it| matches!(it, TimelineItem::Tool { .. }))
+            });
+        if let Some(i) = i {
+            self.toggle_tool_at(i);
         }
+    }
+
+    pub fn toggle_tool_at(&mut self, i: usize) {
+        if let Some(TimelineItem::Tool { expanded, .. }) = self.items.get_mut(i) {
+            *expanded = !*expanded;
+            self.selected_tool = Some(i);
+        }
+    }
+
+    pub fn tool_at_visual_row(&self, visual_row: u16) -> Option<usize> {
+        self.tool_hits.iter().find_map(|(start, len, i)| {
+            if visual_row >= *start && visual_row < start.saturating_add(*len) {
+                Some(*i)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn begin_new_session(&mut self) {
+        self.slash.close();
+        self.overlay.close();
+        self.items.clear();
+        self.selected_tool = None;
+        self.tool_hits.clear();
+        self.streaming = false;
+        self.thinking = false;
+        self.follow = true;
+        self.scroll = 0;
+        self.notice = Some("new session…".into());
     }
 
     pub fn open_spawn_trees(&mut self) {
@@ -952,6 +1056,23 @@ impl Chat {
             MouseEventKind::ScrollDown => {
                 self.scroll = self.scroll.saturating_add(1);
             }
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.overlay.is_open() || self.slash.is_active() {
+                    return None;
+                }
+                let area = self.transcript_area;
+                if mouse.column < area.x
+                    || mouse.row < area.y
+                    || mouse.column >= area.x.saturating_add(area.width)
+                    || mouse.row >= area.y.saturating_add(area.height)
+                {
+                    return None;
+                }
+                let visual = self.scroll.saturating_add(mouse.row.saturating_sub(area.y));
+                if let Some(i) = self.tool_at_visual_row(visual) {
+                    self.toggle_tool_at(i);
+                }
+            }
             _ => {}
         }
         None
@@ -961,7 +1082,7 @@ impl Chat {
         tick::on_tick(self);
     }
 
-    fn key_hints_impl(&self) -> KeyHints<'static> {
+    fn key_hints_impl(&self) -> KeyHints {
         if self.confirm_quit {
             KeyHints::confirm_quit()
         } else if self.overlay.is_open() {
@@ -971,7 +1092,15 @@ impl Chat {
         } else if self.streaming || self.thinking {
             KeyHints::streaming()
         } else {
-            KeyHints::idle()
+            let has_tools = self
+                .items
+                .iter()
+                .any(|it| matches!(it, TimelineItem::Tool { .. }));
+            let can_rewind = self
+                .items
+                .iter()
+                .any(|it| matches!(it, TimelineItem::User { .. }));
+            KeyHints::idle(has_tools, can_rewind)
         }
     }
 
@@ -1020,6 +1149,17 @@ impl Chat {
             agents: self.agents.clone(),
             selected: 0,
             loading: true,
+            steering: false,
+            draft: String::new(),
+        };
+    }
+
+    pub fn open_usage(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Usage {
+            loading: true,
+            snapshot: None,
+            error: None,
         };
     }
 
@@ -1071,6 +1211,7 @@ fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
         ("mcp", "add or remove MCP servers"),
         ("rewind", "regenerate from a past user turn"),
         ("trees", "saved spawn trees"),
+        ("usage", "token / cost for this session"),
         ("help", "keyboard help"),
     ] {
         if !items.iter().any(|c| c.name == name) {
@@ -1210,6 +1351,77 @@ mod tests {
     }
 
     #[test]
+    fn bang_shell_result_fills_running_card() {
+        let mut chat = Chat::new();
+        chat.items.push(TimelineItem::Shell {
+            command: "pwd".into(),
+            output: String::new(),
+            code: None,
+            running: true,
+        });
+        chat.apply_event(SessionEvent::ShellResult {
+            command: "pwd".into(),
+            output: "/tmp".into(),
+            code: Some(0),
+            duration_ms: 4,
+        });
+        match &chat.items[0] {
+            TimelineItem::Shell {
+                output,
+                code,
+                running,
+                ..
+            } => {
+                assert!(output.contains("/tmp"), "{output}");
+                assert_eq!(*code, Some(0));
+                assert!(!*running);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn toggle_tool_at_expands_that_card_not_only_last() {
+        let mut chat = Chat::new();
+        chat.items = vec![
+            TimelineItem::Tool {
+                tool_id: "a".into(),
+                name: "first".into(),
+                args: String::new(),
+                preview: String::new(),
+                result: "one".into(),
+                error: None,
+                done: true,
+                expanded: false,
+            },
+            TimelineItem::Tool {
+                tool_id: "b".into(),
+                name: "second".into(),
+                args: String::new(),
+                preview: String::new(),
+                result: "two".into(),
+                error: None,
+                done: true,
+                expanded: false,
+            },
+        ];
+        chat.toggle_tool_at(0);
+        match &chat.items[0] {
+            TimelineItem::Tool { expanded, .. } => assert!(*expanded),
+            other => panic!("{other:?}"),
+        }
+        match &chat.items[1] {
+            TimelineItem::Tool { expanded, .. } => assert!(!*expanded),
+            other => panic!("{other:?}"),
+        }
+        chat.toggle_last_tool();
+        match &chat.items[0] {
+            TimelineItem::Tool { expanded, .. } => assert!(!*expanded),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn config_set_confirm_keeps_picker_open() {
         let mut chat = Chat::new();
         chat.apply_event(SessionEvent::ConfigSet {
@@ -1252,7 +1464,7 @@ impl Screen for Chat {
         self.tick_screen();
     }
 
-    fn key_hints(&self) -> KeyHints<'static> {
+    fn key_hints(&self) -> KeyHints {
         self.key_hints_impl()
     }
 }
