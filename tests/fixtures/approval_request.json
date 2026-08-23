@@ -1,7 +1,7 @@
 {
   "type": "approval.request",
   "payload": {
-    "command": "rm -rf /tmp/hermes-rust-fixture",
+    "command": "rm -rf /tmp/talaria-fixture",
     "description": "Synthetic fixture matching Python _ApprovalEntry (command/description/choices). request_id is present on the Python side even though the TS type omits it.",
     "choices": ["once", "always", "deny"],
     "allow_permanent": true,

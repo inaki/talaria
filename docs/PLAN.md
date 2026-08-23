@@ -1,6 +1,8 @@
-# hermes-rust — Planning & Architecture (historical)
+# Talaria — Planning & Architecture (historical)
 
 > **Status lives in [PARITY.md](./PARITY.md), not here.** This file is the architecture discussion that started the crate. Do not treat the “empty repo / nothing implemented” language below as current. **Never create `MIGRATION.md`.**
+>
+> **2026-08-23 rebrand:** the product is **Talaria** (binary `talaria`, chrome `~/.talaria`, unofficial host — [NOTICE.md](../NOTICE.md)). Names like `hermes-rust` below are historical.
 
 | Field | Value |
 |-------|-------|

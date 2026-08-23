@@ -1,4 +1,4 @@
-//! Rotating file log under `~/.hermes-rust/logs/hermes-rust.log`.
+//! Rotating file log under `~/.talaria/logs/talaria.log`.
 //!
 //! Always on. `--verbose` only echoes a pre-TUI notice to stderr; writing to
 //! stderr after the alternate screen is up corrupts the display.
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, TalariaPaths};
 
 static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -17,7 +17,7 @@ const MAX_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_FILES: usize = 5;
 
 pub fn log_path() -> PathBuf {
-    HermesRustPaths::from_env().log_file()
+    TalariaPaths::from_env().log_file()
 }
 
 /// Idempotent. Safe to call from `main` and from `run_tui`.
@@ -30,6 +30,7 @@ pub fn init_file_logging() {
         if guard.is_some() {
             return;
         }
+        crate::paths::migrate_legacy_chrome();
         let path = log_path();
         if let Some(parent) = path.parent() {
             create_private_dir_all(parent);
@@ -37,7 +38,7 @@ pub fn init_file_logging() {
         rotate_if_large(&path);
         *guard = Some(path);
     }
-    log_line("hermes-rust logging enabled");
+    log_line("talaria logging enabled");
 }
 
 fn generation(path: &Path, n: usize) -> PathBuf {
@@ -198,7 +199,7 @@ fn key_is_sensitive(key: &str) -> bool {
         || k.ends_with("_private_key")
 }
 
-/// True when a composer line must not be written to `~/.hermes-rust/history`.
+/// True when a composer line must not be written to `~/.talaria/history`.
 pub fn should_skip_history(text: &str) -> bool {
     let t = text.trim();
     t.starts_with('!') || text_looks_secret(t)

@@ -2,7 +2,7 @@
 
 Sequencing for remaining gaps. Status table: [PARITY.md](./PARITY.md).
 
-**Baseline:** v1 host live against official `tui_gateway` (commit after first dump). Binary stays `hermes-rust`.
+**Baseline:** v1 host live against official `tui_gateway` (commit after first dump). Binary is `talaria`.
 
 ## Track A — Transcript fidelity (landed)
 

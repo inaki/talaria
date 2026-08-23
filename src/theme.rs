@@ -11,7 +11,7 @@ use std::sync::RwLock;
 use ratatui::style::{Color, Modifier, Style};
 use serde_json::Value;
 
-use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, TalariaPaths};
 
 pub const GITHUB_ID: &str = "github";
 
@@ -321,9 +321,11 @@ pub fn resolve_startup_theme(cli: Option<&str>) -> &'static str {
     if let Some(id) = cli.and_then(theme_by_id) {
         return id.id;
     }
-    if let Ok(env) = std::env::var("HERMES_RUST_THEME") {
-        if let Some(id) = theme_by_id(&env) {
-            return id.id;
+    for key in ["TALARIA_THEME", "HERMES_RUST_THEME"] {
+        if let Ok(env) = std::env::var(key) {
+            if let Some(id) = theme_by_id(&env) {
+                return id.id;
+            }
         }
     }
     if let Some(saved) = load_saved_theme_id() {
@@ -335,7 +337,7 @@ pub fn resolve_startup_theme(cli: Option<&str>) -> &'static str {
 }
 
 pub fn load_saved_theme_id() -> Option<String> {
-    let path = HermesRustPaths::from_env().theme_file();
+    let path = TalariaPaths::from_env().theme_file();
     let s = std::fs::read_to_string(path).ok()?;
     let id = s.trim();
     if id.is_empty() {
@@ -349,7 +351,7 @@ pub fn save_theme_id(id: &str) {
     let Some(def) = theme_by_id(id) else {
         return;
     };
-    let paths = HermesRustPaths::from_env();
+    let paths = TalariaPaths::from_env();
     create_private_dir_all(&paths.root);
     let path = paths.theme_file();
     let mut opts = std::fs::OpenOptions::new();

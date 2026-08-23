@@ -339,7 +339,7 @@ fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'st
 fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
     let mut lines: Vec<Line> = Vec::new();
     if wide {
-        let mut title = String::from("Hermes Agent");
+        let mut title = String::from("Talaria Agent");
         if !chat.version.is_empty() {
             title.push_str(&format!(" v{}", chat.version));
         }
@@ -349,6 +349,10 @@ fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
         lines.push(Line::from(Span::styled(
             title,
             theme::accent().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "unofficial TUI host for Hermes Agent",
+            theme::dim(),
         )));
         lines.push(Line::from(""));
     } else {
@@ -688,7 +692,7 @@ fn draw_quit_modal(f: &mut Frame, area: Rect) {
     let inner = block.inner(rect);
     f.render_widget(block, rect);
     f.render_widget(
-        Paragraph::new("Quit hermes-rust?\n y to confirm  ·  Esc to cancel"),
+        Paragraph::new("Quit talaria?\n y to confirm  ·  Esc to cancel"),
         inner,
     );
 }

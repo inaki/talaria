@@ -1,11 +1,13 @@
-# hermes-rust
+# Talaria Agent
 
-**A native [ratatui](https://ratatui.rs) TUI for [Hermes Agent](https://github.com/NousResearch/hermes-agent).**
+**Unofficial TUI host for [Hermes Agent](https://github.com/NousResearch/hermes-agent).** Native [ratatui](https://ratatui.rs), not a Nous Research product.
 
-This is a *host*, not a fork. It speaks the same stdio JSON-RPC 2.0 protocol as `hermes --tui`, then renders chat, tools, approvals, and slash commands in a single Rust binary. Python still owns the agent: tools, memory, skills, models, and `~/.hermes`.
+Talaria is a *host*, not a fork, and **not a Nous Research product**. It speaks the same stdio JSON-RPC 2.0 protocol as `hermes --tui`, then renders chat, tools, approvals, and slash commands in a single Rust binary. Python still owns the agent: tools, memory, skills, models, and `~/.hermes`.
+
+See **[NOTICE.md](NOTICE.md)** for the relationship to Hermes Agent and Nous Research.
 
 ```
-hermes-rust (this repo)          official Hermes
+talaria (this repo)              official Hermes Agent
 ┌─────────────────────┐          ┌──────────────────────┐
 │  ratatui TUI        │  NDJSON  │  python -m           │
 │  keys · overlays    │◄────────►│  tui_gateway.entry   │
@@ -18,20 +20,21 @@ hermes-rust (this repo)          official Hermes
 [![ratatui](https://img.shields.io/badge/tui-ratatui-000?logo=ratatui)](https://ratatui.rs)
 [![Hermes](https://img.shields.io/badge/hosts-Hermes%20Agent-FFD700)](https://github.com/NousResearch/hermes-agent)
 [![status](https://img.shields.io/badge/status-PARITY.md-4caf50)](docs/PARITY.md)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Binary name is **`hermes-rust`**, never `hermes` — so you can keep the official CLI on PATH.
+Binary name is **`talaria`**, never `hermes` — so you can keep the official CLI on PATH.
 
 ---
 
 ## Why
 
-`hermes --tui` is TypeScript + Ink on top of Python `tui_gateway`. That split is already right: the UI is a client, the agent is a child. hermes-rust is the same client, in Rust:
+`hermes --tui` is TypeScript + Ink on top of Python `tui_gateway`. That split is already right: the UI is a client, the agent is a child. Talaria is the same kind of client, in Rust:
 
 - One native binary for the *UI* (Python still required for the agent)
 - Immediate-mode redraw for streaming tokens, tool cards, and modals
 - Offline `--mock=` scripts so the TUI is demo-able without an API key
 
-What we **do not** do: reimplement Hermes, vendor `hermes-agent`, write `~/.hermes`, or ship as a drop-in `hermes` command.
+What we **do not** do: reimplement Hermes, vendor `hermes-agent`, write `~/.hermes`, ship as a drop-in `hermes` command, or present this as the official TUI.
 
 ---
 
@@ -44,17 +47,28 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 # then: hermes setup   # Nous Portal is the easy path
 ```
 
-**2. This TUI**
+**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`.
+
+```bash
+# curl (GitHub Releases)
+curl -fsSL https://raw.githubusercontent.com/inaki/hermes-rust/main/install.sh | bash
+# pin:  curl … | bash -s -- v0.1.0
+
+# Homebrew (builds from git HEAD until the first tagged release)
+brew install --HEAD --formula https://raw.githubusercontent.com/inaki/hermes-rust/main/dist/homebrew/talaria.rb
+```
+
+Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`.
+
+**Quit the other TUI first.** `talaria` refuses to start if `hermes --tui` or another `tui_gateway` is already running (they race the same SQLite). Override with `--force` or `TALARIA_ALLOW_CONCURRENT=1`.
+
+From source:
 
 ```bash
 git clone git@github.com:inaki/hermes-rust.git
 cd hermes-rust
 cargo run -- --theme default
 ```
-
-Discovery finds `~/.hermes/hermes-agent/venv/bin/python` even if `hermes` is not on PATH. Override with `HERMES_PYTHON`.
-
-**Quit `hermes --tui` first.** Two gateways on one `HERMES_HOME` race the same SQLite. Sequential use is fine.
 
 ### Offline (no Python)
 
@@ -78,7 +92,7 @@ cargo run --example dump_gateway -- --prompt hi  # calls your configured model
 
 | | |
 |---|---|
-| **Splash** | ANSI Shadow wordmark, Braille caduceus, live tools/skills from `session.info` |
+| **Splash** | ANSI Shadow `TALARIA` wordmark, Braille caduceus, live tools/skills from `session.info` |
 | **Chat** | Streaming deltas, markdown on completed turns, thinking blocks |
 | **Tools** | Collapsed cards; **Ctrl+O** expands args/result (secrets redacted) |
 | **Approvals** | Approval / clarify / sudo / secret overlays |
@@ -116,9 +130,9 @@ src/
   app/            ratatui loop (sync) + Tokio I/O
 ```
 
-Library-first: `hermes_rust` is the crate, `src/main.rs` is clap + `run_tui`.
+Library-first: `talaria` is the crate, `src/main.rs` is clap + `run_tui`. `publish = false` (crates.io already has an unrelated `talaria` crate).
 
-On disk this process only writes **`~/.hermes-rust/`** (logs, composer history, saved theme). `~/.hermes` belongs to Python.
+On disk this process only writes **`~/.talaria/`** (logs, composer history, saved theme). A leftover `~/.hermes-rust/` is renamed once. `~/.hermes` belongs to Python.
 
 ---
 
@@ -126,6 +140,7 @@ On disk this process only writes **`~/.hermes-rust/`** (logs, composer history, 
 
 | | |
 |---|---|
+| **[NOTICE.md](NOTICE.md)** | Unofficial status, names, credits |
 | **[PARITY.md](docs/PARITY.md)** | What we cover vs `hermes --tui` |
 | [RUNNING.md](docs/RUNNING.md) | Mock vs live, themes, dumps |
 | [docs/README.md](docs/README.md) | Index |
@@ -134,4 +149,4 @@ Official Hermes: [hermes-agent](https://github.com/NousResearch/hermes-agent) ·
 
 ---
 
-Built next to [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com). This repo is an independent ratatui host for that gateway.
+Talaria is independent of [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com). It hosts that gateway; it is not the official TUI.

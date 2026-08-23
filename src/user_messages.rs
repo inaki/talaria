@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use crate::discover::DiscoveryError;
 use crate::gateway::GatewayError;
+use crate::peer;
 
 pub fn discovery_failed(err: &DiscoveryError) -> String {
     let mut s = String::from("Could not find a Python that imports tui_gateway.\n");
@@ -31,7 +32,7 @@ pub fn gateway_failed(err: &GatewayError) -> String {
     match err {
         GatewayError::StartupTimeout { stderr_tail } => {
             let mut s = String::from(
-                "Hermes gateway did not become ready in time. Check ~/.hermes-rust/logs/hermes-rust.log.",
+                "Hermes gateway did not become ready in time. Check ~/.talaria/logs/talaria.log.",
             );
             if !stderr_tail.is_empty() {
                 s.push_str("\n\nLast gateway output:\n");
@@ -43,9 +44,8 @@ pub fn gateway_failed(err: &GatewayError) -> String {
             let code_s = code
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "unknown".into());
-            let mut s = format!(
-                "Hermes gateway exited (code {code_s}). See ~/.hermes-rust/logs/hermes-rust.log."
-            );
+            let mut s =
+                format!("Hermes gateway exited (code {code_s}). See ~/.talaria/logs/talaria.log.");
             if !stderr_tail.is_empty() {
                 s.push_str("\n\nLast gateway output:\n");
                 s.push_str(stderr_tail);
@@ -75,9 +75,13 @@ pub fn gateway_failed(err: &GatewayError) -> String {
     }
 }
 
+pub fn peers_running(peers: &[peer::Peer]) -> String {
+    peer::conflict_message(peers)
+}
+
 pub fn child_exited(code: Option<i32>) -> String {
     let code_s = code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "unknown".into());
-    format!("Hermes gateway exited (code {code_s}). Last log: ~/.hermes-rust/logs/hermes-rust.log")
+    format!("Hermes gateway exited (code {code_s}). Last log: ~/.talaria/logs/talaria.log")
 }

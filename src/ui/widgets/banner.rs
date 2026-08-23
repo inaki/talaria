@@ -1,14 +1,9 @@
-//! Official Hermes splash art.
+//! Talaria splash: ANSI Shadow wordmark plus the Hermes caduceus.
 //!
-//! **Wordmark:** FIGlet font **ANSI Shadow**, pre-rendered in the Ink TUI
-//! (`ui-tui/src/banner.ts` `LOGO_ART`) and regenerated here via
-//! [`crate::ui::widgets::big_text`].
+//! **Wordmark:** live FIGlet font **ANSI Shadow** via [`crate::ui::widgets::big_text`].
 //!
-//! **Caduceus (image 2):** not FIGlet. It is a **hand-composed Unicode
-//! Braille bitmap**. Each cell is U+2800–U+28FF (2×4 dots). They drew the
-//! staff as pixels and encoded each 2×4 window as one braille character,
-//! then colorized rows with a gold→amber→bronze gradient. Same constant as
-//! `HERMES_CADUCEUS` in `hermes_cli/banner.py`.
+//! **Caduceus:** hand-composed Unicode Braille bitmap (U+2800–U+28FF), same
+//! constant as Ink `CADUCEUS_ART` / `HERMES_CADUCEUS` in `hermes_cli/banner.py`.
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -41,7 +36,7 @@ const CADUCEUS_GRADIENT: &[u8] = &[2, 2, 1, 1, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3];
 /// Ink `LOGO_GRADIENT` for the six ANSI Shadow rows.
 const LOGO_GRADIENT: &[u8] = &[0, 0, 1, 1, 2, 2];
 
-const TAGLINE: &str = "Nous Research · Messenger of the Digital Gods";
+const TAGLINE: &str = "Unofficial TUI host for Hermes Agent";
 
 fn tone(i: u8) -> Style {
     match i {
@@ -62,33 +57,21 @@ fn colorize(art: &[&str], gradient: &[u8]) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// `HERMES-AGENT` wordmark: live ANSI Shadow, else the Ink pre-render.
+/// `TALARIA` wordmark: live ANSI Shadow, else a plain title.
 pub fn logo_lines() -> Vec<Line<'static>> {
-    let generated = big_text::render_ansi_shadow("HERMES-AGENT");
+    let generated = big_text::render_ansi_shadow("TALARIA");
     if generated.len() >= 5 {
-        let rows: Vec<&str> = generated.iter().map(String::as_str).collect();
         let g = LOGO_GRADIENT;
-        return rows
+        return generated
             .iter()
             .enumerate()
             .map(|(i, text)| {
                 let gi = g.get(i).copied().unwrap_or(2);
-                Line::from(Span::styled((*text).to_string(), tone(gi)))
+                Line::from(Span::styled(text.clone(), tone(gi)))
             })
             .collect();
     }
-    // Fallback: official pre-rendered ANSI Shadow (Ink `LOGO_ART`).
-    colorize(
-        &[
-            "██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
-            "██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
-            "███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
-            "██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
-            "██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
-            "╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
-        ],
-        LOGO_GRADIENT,
-    )
+    vec![Line::from(Span::styled("TALARIA", tone(0)))]
 }
 
 pub fn caduceus_lines() -> Vec<Line<'static>> {
@@ -121,5 +104,24 @@ mod tests {
             "caduceus must be Unicode Braille, not FIGlet"
         );
         assert_eq!(CADUCEUS.len(), 15);
+    }
+
+    #[test]
+    fn tagline_does_not_claim_nous() {
+        let t = tagline();
+        assert!(t.to_ascii_lowercase().contains("unofficial"), "{t}");
+        assert!(!t.contains("Nous Research"), "{t}");
+        assert!(!t.contains("Digital Gods"), "{t}");
+    }
+
+    #[test]
+    fn logo_is_talaria() {
+        let generated = big_text::render_ansi_shadow("TALARIA");
+        assert!(
+            generated.len() >= 5,
+            "expected a multi-row TALARIA wordmark, got {generated:?}"
+        );
+        let lines = logo_lines();
+        assert!(!lines.is_empty());
     }
 }

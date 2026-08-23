@@ -1,0 +1,86 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release --locked
+      - name: Pack
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          ver="${tag#v}"
+          bin="target/release/talaria"
+          chmod +x "$bin"
+          strip "$bin" || true
+          asset="talaria-${ver}-${{ matrix.target }}.tar.gz"
+          tar -czf "$asset" -C target/release talaria
+          python3 - <<PY
+          import hashlib, pathlib
+          p = pathlib.Path("${asset}")
+          digest = hashlib.sha256(p.read_bytes()).hexdigest()
+          pathlib.Path(p.name + ".sha256").write_text(f"{digest}  {p.name}\n")
+          print(f"{digest}  {p.name}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            talaria-*.tar.gz
+            talaria-*.tar.gz.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          set -euo pipefail
+          find dist -name '*.sha256' -exec cat {} + | sort > dist/SHA256SUMS
+          cat dist/SHA256SUMS
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -name '*.tar.gz')
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            "${assets[@]}" dist/SHA256SUMS

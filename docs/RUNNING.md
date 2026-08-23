@@ -1,4 +1,15 @@
-# Running hermes-rust
+# Running Talaria
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inaki/hermes-rust/main/install.sh | bash
+brew install --HEAD --formula https://raw.githubusercontent.com/inaki/hermes-rust/main/dist/homebrew/talaria.rb
+```
+
+The UI binary is `talaria`. Live mode uses the same `~/.hermes` as `hermes --tui`. Chrome (skin, composer history, `/custom`) is `~/.talaria/`.
+
+If another Hermes Agent TUI is running, this process exits before the alt-screen with pids to quit. `--force` skips that check.
 
 ## Offline (no Hermes)
 
@@ -27,15 +38,15 @@ cargo run --example dump_gateway -- --prompt "Say hi."   # calls your model
 cargo run                                 # TUI
 ```
 
-Logs: `~/.hermes-rust/logs/hermes-rust.log` (always on, 0600). Never writes `~/.hermes`.
+Logs: `~/.talaria/logs/talaria.log` (always on, 0600). Never writes `~/.hermes`.
 
 Skins: `github` (this host's default) plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). `/skin` in the TUI (alias `/theme`), or:
 
 ```bash
 cargo run -- --theme default
-HERMES_RUST_THEME=ares cargo run -- --dev --mock=streaming
+TALARIA_THEME=ares cargo run -- --dev --mock=streaming
 ```
 
-Choice is saved to `~/.hermes-rust/theme`.
+Choice is saved to `~/.talaria/theme`.
 
 `/rewind` regenerates from a past user turn. It only offers turns that have a durable `row_id` (from `session.history` / resume). Confirming sends `confirm_truncate` + `truncate_before_row_id` — ordinary Enter never truncates.

@@ -1,21 +1,21 @@
-//! Thin binary. All logic lives in `hermes_rust`.
+//! Thin binary. All logic lives in `talaria`.
 
 use clap::Parser;
 
-use hermes_rust::app::{run_tui_with_options, RunOptions};
-use hermes_rust::cli::Cli;
+use talaria::app::{run_tui_with_options, RunOptions};
+use talaria::cli::Cli;
 
 fn main() {
     let cli = Cli::parse();
-    hermes_rust::logging::init_file_logging();
+    talaria::logging::init_file_logging();
 
     if cli.verbose {
         eprintln!(
-            "[hermes-rust] verbose; log {}",
-            hermes_rust::logging::log_path().display()
+            "[talaria] verbose; log {}",
+            talaria::logging::log_path().display()
         );
         if cli.dev || cli.mock.is_some() {
-            eprintln!("[hermes-rust] mock session (no Python child)");
+            eprintln!("[talaria] mock session (no Python child)");
         }
     }
 
@@ -24,6 +24,7 @@ fn main() {
         mock: cli.mock.clone(),
         verbose: cli.verbose,
         theme: cli.theme.clone(),
+        force: cli.force,
     }) {
         eprintln!("{e}");
         std::process::exit(1);

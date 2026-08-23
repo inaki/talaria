@@ -9,14 +9,14 @@ Last updated: 2026-08-23.
 (`session_id`, `stored_session_id`, `info.lazy: true`, `info.model`) + shutdown.
 `hermes` may not be on PATH until the installer finishes linking `~/.local/bin/hermes`.
 
-| Surface | hermes-rust | Notes |
+| Surface | talaria | Notes |
 |---------|-------------|-------|
 | Spawn `tui_gateway` over stdio JSON-RPC | Yes | `-u` + `PYTHONUNBUFFERED=1`; import-probe discovery |
 | Streaming chat | Yes | `message.delta` / `complete` |
 | Markdown in completed assistant turns | Yes | pulldown-cmark; streaming stays plain text |
-| Skin | Yes | `/skin` picker: `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). Alias `/theme`. Saved to `~/.hermes-rust/theme` |
-| Opening splash | Yes | Empty transcript shows ANSI Shadow `HERMES-AGENT` wordmark + Braille caduceus + tools/skills panel (official Ink art; FIGlet via `figrs`) |
-| Composer history | Yes | `~/.hermes-rust/history` (0600, last 200), not `~/.hermes` |
+| Skin | Yes | `/skin` picker: `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). Alias `/theme`. Saved to `~/.talaria/theme` |
+| Opening splash | Yes | Empty transcript shows ANSI Shadow `TALARIA` wordmark + Braille caduceus + tools/skills panel titled **Talaria Agent** |
+| Composer history | Yes | `~/.talaria/history` (0600, last 200), not `~/.hermes` |
 | Thinking spinner | Yes | Live dim transcript block + status; sealed on first `message.delta` |
 | Tools | Yes | Collapsed one-liner; **click** or **Ctrl+O** expands a card (Ctrl+O uses the selected card, else the last); secrets redacted |
 | Approvals / clarify / sudo / secret | Yes | Overlays; expire only sudo/secret by `request_id` |
@@ -29,11 +29,11 @@ Last updated: 2026-08-23.
 | Bang shell | Yes | `! pwd` / `!ls` runs locally in session cwd after a confirm overlay (shows cwd); not sent to the model. 30s timeout kills the process group. Output is secret-scrubbed |
 | Subagents | Yes | Timeline + `/agents` overlay; Enter interrupts; **s** steers (`subagent.steer`) |
 | Usage | Yes | Native `/usage` overlay via `session.usage` |
-| Composer meter | Yes | Strip above the prompt: model, context fill, session / last-turn / idle clocks. `/custom` toggles the meter and the key-hint row (saved in `~/.hermes-rust/custom`) |
+| Composer meter | Yes | Strip above the prompt: model, context fill, session / last-turn / idle clocks. `/custom` toggles the meter and the key-hint row (saved in `~/.talaria/custom`) |
 | Image attach | Partial | Path paste + **Ctrl+V** `clipboard.paste` (gateway reads OS clipboard) |
 | Rewind / edit | Yes | `/rewind` lists `session.history` user turns with `row_id`; confirm → `prompt.submit` with `confirm_truncate` + `truncate_before_row_id` (+ `confirm_empty_truncate` on the first turn). Ordinary send stays `{session_id, text}` only |
 | Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |
 | WebSocket attach / sidecar | No | Stdio only |
-| Packaging as `hermes` | No | Binary is `hermes-rust` |
+| Packaging as `hermes` | No | Binary is `talaria`. Unofficial host — see [NOTICE.md](../NOTICE.md) |
 
 How to run: [RUNNING.md](./RUNNING.md).

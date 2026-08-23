@@ -1,4 +1,4 @@
-//! Chrome prefs (`/custom`). Stored under `~/.hermes-rust/custom`, never `~/.hermes`.
+//! Chrome prefs (`/custom`). Stored under `~/.talaria/custom`, never `~/.hermes`.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,7 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, TalariaPaths};
 
 fn on() -> bool {
     true
@@ -76,7 +76,7 @@ fn replace(prefs: ChromePrefs) {
 }
 
 fn prefs_path() -> PathBuf {
-    HermesRustPaths::from_env().custom_file()
+    TalariaPaths::from_env().custom_file()
 }
 
 impl ChromePrefs {
@@ -113,8 +113,7 @@ mod tests {
     use super::*;
 
     fn temp_path(name: &str) -> PathBuf {
-        let p =
-            std::env::temp_dir().join(format!("hermes-rust-prefs-{name}-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("talaria-prefs-{name}-{}", std::process::id()));
         let _ = std::fs::remove_file(&p);
         p
     }

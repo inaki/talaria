@@ -11,10 +11,10 @@
 use std::time::Duration;
 
 use clap::Parser;
-use hermes_rust::discover;
-use hermes_rust::gateway::{GatewayClient, GatewayEvent};
-use hermes_rust::logging::{self, log_line};
 use serde_json::json;
+use talaria::discover;
+use talaria::gateway::{GatewayClient, GatewayEvent};
+use talaria::logging::{self, log_line};
 use tokio::time::timeout;
 
 #[derive(Parser, Debug)]
@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let found = match discover::discover() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{}", hermes_rust::user_messages::discovery_failed(&e));
+            eprintln!("{}", talaria::user_messages::discovery_failed(&e));
             std::process::exit(2);
         }
     };
@@ -118,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
 async fn wait_session_info(
     events: &mut tokio::sync::mpsc::Receiver<GatewayEvent>,
     max: Duration,
-) -> Option<hermes_rust::protocol::WireEvent> {
+) -> Option<talaria::protocol::WireEvent> {
     let deadline = tokio::time::Instant::now() + max;
     loop {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());

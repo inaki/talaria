@@ -843,7 +843,11 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
         }
         Overlay::Help => {
             let lines = vec![
-                Line::from(Span::styled("hermes-rust", theme::accent())),
+                Line::from(Span::styled("talaria", theme::accent())),
+                Line::from(Span::styled(
+                    "unofficial TUI host for Hermes Agent",
+                    theme::dim(),
+                )),
                 Line::from(""),
                 Line::from("Enter            send (steer if a turn is running)"),
                 Line::from("!cmd             local shell (confirms first; no model turn)"),
@@ -874,7 +878,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ];
-            paint_modal(f, area, " help ", lines, 23);
+            paint_modal(f, area, " help ", lines, 24);
         }
         Overlay::Agents {
             agents,
@@ -1124,7 +1128,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
             }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "saved to ~/.hermes-rust/custom",
+                "saved to ~/.talaria/custom",
                 theme::dim(),
             )));
             paint_modal(f, area, " custom ", lines, 12);

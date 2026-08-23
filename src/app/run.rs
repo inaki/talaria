@@ -44,6 +44,20 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
     crate::prefs::load();
     log_line(&format!("theme: {theme_id}"));
 
+    let live = !(options.dev || options.mock.is_some());
+    let _tui_lock = if live {
+        let peers = crate::peer::find_conflicts();
+        if !peers.is_empty() && !crate::peer::allow_concurrent(options.force) {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                user_messages::peers_running(&peers),
+            ));
+        }
+        Some(crate::peer::TuiLock::acquire())
+    } else {
+        None
+    };
+
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let mut app = App::new();
     app.tokio_handle = Some(rt.handle().clone());

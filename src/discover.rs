@@ -201,7 +201,7 @@ fn src_root_from_env() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn hermes_home() -> PathBuf {
+pub(crate) fn hermes_home() -> PathBuf {
     std::env::var("HERMES_HOME")
         .ok()
         .filter(|s| !s.is_empty())
@@ -401,7 +401,7 @@ mod tests {
     fn hermes_home_venv_is_a_candidate() {
         let _g = ENV_LOCK.lock().unwrap();
         let tmp = std::env::temp_dir().join(format!(
-            "hermes-rust-disc-{}-{}",
+            "talaria-disc-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn launcher_shebang_extracts_python() {
-        let tmp = std::env::temp_dir().join(format!("hermes-rust-launch-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("talaria-launch-{}", std::process::id()));
         let venv_py = tmp.join("hermes-agent/venv/bin/python");
         std::fs::create_dir_all(venv_py.parent().unwrap()).unwrap();
         std::fs::write(&venv_py, "").unwrap();

@@ -1,6 +1,6 @@
-# hermes-rust docs
+# Talaria docs
 
-Living documentation for the native Rust + ratatui Hermes TUI host.
+Living documentation for the unofficial native Rust + ratatui Hermes Agent TUI host.
 
 ## Source of truth
 
@@ -21,9 +21,9 @@ Living documentation for the native Rust + ratatui Hermes TUI host.
 | `STRUCTURE.md` | Module-by-module tour |
 | `BEST_PRACTICES.md` | Conventions |
 
-## Frozen names
+## Names
 
-Cargo package `hermes-rust`, binary `hermes-rust`, library `hermes_rust`.
+Cargo package `talaria`, binary `talaria`, library `talaria`, `publish = false`. Chrome `~/.talaria`. Agent home remains `~/.hermes`. See [NOTICE.md](../NOTICE.md).
 
 ## Upstream (read-only)
 

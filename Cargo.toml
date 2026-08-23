@@ -1,14 +1,17 @@
 [package]
-name = "hermes-rust"
+name = "talaria"
 version = "0.1.0"
 edition = "2021"
-default-run = "hermes-rust"
+default-run = "talaria"
+license = "MIT"
 publish = false
-description = "Native ratatui host for the official Hermes tui_gateway"
-authors = ["hermes-rust"]
+description = "Unofficial native ratatui host for Hermes Agent (tui_gateway)"
+authors = ["inaki"]
+repository = "https://github.com/inaki/hermes-rust"
+readme = "README.md"
 
 [[bin]]
-name = "hermes-rust"
+name = "talaria"
 path = "src/main.rs"
 
 [[example]]

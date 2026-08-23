@@ -4,9 +4,9 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "hermes-rust",
+    name = "talaria",
     version,
-    about = "Native ratatui host for Hermes tui_gateway"
+    about = "Unofficial native ratatui host for Hermes Agent (tui_gateway)"
 )]
 pub struct Cli {
     /// Extra stderr notices before the alternate screen. File log is always on.
@@ -24,4 +24,8 @@ pub struct Cli {
     /// Color skin: github | default | ares | mono | slate | daylight | warm-lightmode | poseidon | sisyphus | charizard
     #[arg(long)]
     pub theme: Option<String>,
+
+    /// Start even if another Hermes TUI / talaria / tui_gateway is already running.
+    #[arg(long)]
+    pub force: bool,
 }

@@ -1,5 +1,5 @@
 //! Multi-line composer. Shift+Enter inserts a newline; Enter submits.
-//! History persists under `~/.hermes-rust/history` (not `~/.hermes`).
+//! History persists under `~/.talaria/history` (not `~/.hermes`).
 
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, TalariaPaths};
 use crate::ui::keys::is_newline_key;
 
 const MAX_HISTORY: usize = 200;
@@ -25,7 +25,7 @@ pub struct TextComposer {
 impl TextComposer {
     pub fn with_persisted_history() -> Self {
         let mut c = Self::default();
-        c.load_from(&HermesRustPaths::from_env().history_file());
+        c.load_from(&TalariaPaths::from_env().history_file());
         c
     }
 
@@ -45,7 +45,7 @@ impl TextComposer {
     }
 
     pub fn persist(&self) {
-        self.persist_to(&HermesRustPaths::from_env().history_file());
+        self.persist_to(&TalariaPaths::from_env().history_file());
     }
 
     pub fn persist_to(&self, path: &Path) {
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn persist_roundtrip_file() {
-        let dir = std::env::temp_dir().join(format!("hermes-rust-hist-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("talaria-hist-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("history");
         let mut c = TextComposer::default();
