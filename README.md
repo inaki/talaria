@@ -1,4 +1,4 @@
-<img width="800" height="536" alt="CleanShot 2026-08-23 at 13 12 13" src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b" />
+<img width="100%" alt="Talaria Client" src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b" />
 
 # Talaria Client
 

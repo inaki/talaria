@@ -141,11 +141,9 @@
     a { color: var(--gold); }
     a:hover { color: var(--text); }
     .shot {
-      margin: 0 0 2rem;
-      width: 100%;
-      border: 0;
-      border-block: 1px solid var(--line);
-      border-radius: 0;
+      margin: 1.75rem 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       overflow: hidden;
       background: #11111f;
     }
@@ -245,13 +243,13 @@
     </div>
   </header>
 
-  <figure class="shot">
-    <img
-      src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
-      alt="Talaria Client splash: TALARIA - CLIENT wordmark, caduceus, and Hermes tools panel">
-  </figure>
-
   <main class="wrap">
+    <figure class="shot">
+      <img
+        src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
+        alt="Talaria Client splash: TALARIA - CLIENT wordmark, caduceus, and Hermes tools panel">
+    </figure>
+
     <h2>Install</h2>
     <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
     <p class="install-label">Homebrew <span>macOS · builds from source</span></p>
