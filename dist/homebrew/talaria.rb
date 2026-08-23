@@ -3,8 +3,8 @@
 class Talaria < Formula
   desc "Unofficial native ratatui TUI host for Hermes Agent"
   homepage "https://github.com/inaki/talaria"
-  url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "47b7e051a9a06c99df6aa647c241bf3292436923ea0eadc6119855e290bdfb17"
+  url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "a4f7726c1a0fa2be638753b8e203af4fe9598f24ac6debddc4d1ee14dc8c8b65"
   license "MIT"
   head "https://github.com/inaki/talaria.git", branch: "main"
 
