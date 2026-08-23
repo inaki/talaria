@@ -36,7 +36,7 @@ const CADUCEUS_GRADIENT: &[u8] = &[2, 2, 1, 1, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3];
 /// Ink `LOGO_GRADIENT` for the six ANSI Shadow rows.
 const LOGO_GRADIENT: &[u8] = &[0, 0, 1, 1, 2, 2];
 
-const TAGLINE: &str = "Unofficial TUI host for Hermes Agent";
+const TAGLINE: &str = "Native Rust TUI for Hermes Agent";
 
 fn tone(i: u8) -> Style {
     match i {
@@ -57,9 +57,9 @@ fn colorize(art: &[&str], gradient: &[u8]) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// `TALARIA - AGENT` wordmark: live ANSI Shadow, else a plain title.
+/// `TALARIA - CLIENT` wordmark: live ANSI Shadow, else a plain title.
 pub fn logo_lines() -> Vec<Line<'static>> {
-    let generated = big_text::render_ansi_shadow("TALARIA - AGENT");
+    let generated = big_text::render_ansi_shadow("TALARIA - CLIENT");
     if generated.len() >= 5 {
         let g = LOGO_GRADIENT;
         return generated
@@ -71,7 +71,7 @@ pub fn logo_lines() -> Vec<Line<'static>> {
             })
             .collect();
     }
-    vec![Line::from(Span::styled("TALARIA - AGENT", tone(0)))]
+    vec![Line::from(Span::styled("TALARIA - CLIENT", tone(0)))]
 }
 
 pub fn caduceus_lines() -> Vec<Line<'static>> {
@@ -109,17 +109,18 @@ mod tests {
     #[test]
     fn tagline_does_not_claim_nous() {
         let t = tagline();
-        assert!(t.to_ascii_lowercase().contains("unofficial"), "{t}");
+        assert!(t.contains("Hermes Agent"), "{t}");
+        assert!(t.to_ascii_lowercase().contains("rust"), "{t}");
         assert!(!t.contains("Nous Research"), "{t}");
         assert!(!t.contains("Digital Gods"), "{t}");
     }
 
     #[test]
     fn logo_is_talaria() {
-        let generated = big_text::render_ansi_shadow("TALARIA - AGENT");
+        let generated = big_text::render_ansi_shadow("TALARIA - CLIENT");
         assert!(
             generated.len() >= 5,
-            "expected a multi-row TALARIA - AGENT wordmark, got {generated:?}"
+            "expected a multi-row TALARIA - CLIENT wordmark, got {generated:?}"
         );
         let lines = logo_lines();
         assert!(!lines.is_empty());

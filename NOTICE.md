@@ -1,6 +1,6 @@
 # Notice
 
-**Talaria** is an independent, unofficial TUI host for [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+**Talaria Client** is an independent, unofficial native Rust TUI for [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
 It is **not** a product of [Nous Research](https://nousresearch.com), and it is **not** affiliated with, endorsed by, or sponsored by Nous Research.
 

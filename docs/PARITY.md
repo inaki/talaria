@@ -15,7 +15,7 @@ Last updated: 2026-08-23.
 | Streaming chat | Yes | `message.delta` / `complete` |
 | Markdown in completed assistant turns | Yes | pulldown-cmark; streaming stays plain text |
 | Skin | Yes | `/skin` picker: `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). Alias `/theme`. Saved to `~/.talaria/theme` |
-| Opening splash | Yes | Empty transcript shows ANSI Shadow `TALARIA - AGENT` wordmark + Braille caduceus + tools/skills panel titled **Talaria Agent** |
+| Opening splash | Yes | Empty transcript shows ANSI Shadow `TALARIA - CLIENT` wordmark + Braille caduceus + tools/skills panel titled **Talaria Client** |
 | Composer history | Yes | `~/.talaria/history` (0600, last 200), not `~/.hermes` |
 | Thinking spinner | Yes | Live dim transcript block + status; sealed on first `message.delta` |
 | Tools | Yes | Collapsed one-liner; **click** or **Ctrl+O** expands a card (Ctrl+O uses the selected card, else the last); secrets redacted |
@@ -35,5 +35,6 @@ Last updated: 2026-08-23.
 | Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |
 | WebSocket attach / sidecar | No | Stdio only |
 | Packaging as `hermes` | No | Binary is `talaria`. Unofficial host — see [NOTICE.md](../NOTICE.md) |
+| Update notice | Yes | Live start checks GitHub Releases (24h cache). Splash + `/help` show `Talaria X is out · brew upgrade / curl \| bash`. No auto-upgrade. `TALARIA_NO_UPDATE_CHECK=1` skips |
 
 How to run: [RUNNING.md](./RUNNING.md).

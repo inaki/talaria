@@ -86,11 +86,11 @@ mod tests {
             joined.contains('█') || joined.contains('#') || joined.contains('╗'),
             "ANSI Shadow should use block/box glyphs: {joined}"
         );
-        let titled = render_ansi_shadow("TALARIA - AGENT");
+        let titled = render_ansi_shadow("TALARIA - CLIENT");
         assert!(
             titled.iter().map(|l| l.width()).max().unwrap_or(0)
                 > lines.iter().map(|l| l.width()).max().unwrap_or(0),
-            "TALARIA - AGENT should be wider than TALARIA"
+            "TALARIA - CLIENT should be wider than TALARIA"
         );
     }
 

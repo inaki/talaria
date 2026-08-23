@@ -6,7 +6,7 @@ use clap::Parser;
 #[command(
     name = "talaria",
     version,
-    about = "Unofficial native ratatui host for Hermes Agent (tui_gateway)"
+    about = "Native Rust TUI client for Hermes Agent"
 )]
 pub struct Cli {
     /// Extra stderr notices before the alternate screen. File log is always on.

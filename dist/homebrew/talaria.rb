@@ -1,7 +1,7 @@
 # Homebrew formula. Live copy: https://github.com/inaki/homebrew-talaria
 #   brew install inaki/talaria/talaria
 class Talaria < Formula
-  desc "Unofficial native ratatui TUI host for Hermes Agent"
+  desc "Native Rust TUI client for Hermes Agent"
   homepage "https://github.com/inaki/talaria"
   url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.1.tar.gz"
   sha256 "a4f7726c1a0fa2be638753b8e203af4fe9598f24ac6debddc4d1ee14dc8c8b65"
@@ -16,7 +16,7 @@ class Talaria < Formula
 
   def caveats
     <<~EOS
-      Talaria is an independent, unofficial TUI host for Hermes Agent
+      Talaria Client is an independent, unofficial native Rust TUI for Hermes Agent
       (Nous Research). It is not affiliated with or endorsed by Nous Research.
 
       Live mode uses the same ~/.hermes as official Hermes (models, keys, sessions).

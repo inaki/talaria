@@ -1,6 +1,6 @@
 # Talaria docs
 
-Living documentation for the unofficial native Rust + ratatui Hermes Agent TUI host.
+Living documentation for Talaria Client, the unofficial native Rust TUI for Hermes Agent.
 
 ## Source of truth
 

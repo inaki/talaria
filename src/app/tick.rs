@@ -13,6 +13,15 @@ pub fn on_tick(app: &mut App) {
     for ev in drained {
         apply(app, ev);
     }
+    if let Some(rx) = app.update_rx.as_mut() {
+        if let Ok(latest) = rx.try_recv() {
+            let CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.update_available = Some(latest.clone());
+            if chat.notice.is_none() || chat.notice.as_deref() == Some("gateway ready") {
+                chat.notice = Some(crate::update::notice_line(&latest));
+            }
+        }
+    }
     let CurrentScreen::Chat(chat) = &mut app.screen;
     if chat.take_pending_usage() {
         if let Some(session) = &app.session {

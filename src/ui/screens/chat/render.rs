@@ -51,7 +51,7 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
         f.render_widget(chat.key_hints_impl(), gutter(chunks[i]));
     }
 
-    super::overlay::draw_overlay(&chat.overlay, f, area);
+    super::overlay::draw_overlay(&chat.overlay, f, area, chat.update_available.as_deref());
     if chat.confirm_quit {
         draw_quit_modal(f, area);
     }
@@ -339,7 +339,7 @@ fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'st
 fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
     let mut lines: Vec<Line> = Vec::new();
     if wide {
-        let mut title = String::from("Talaria Agent");
+        let mut title = String::from("Talaria Client");
         if !chat.version.is_empty() {
             title.push_str(&format!(" v{}", chat.version));
         }
@@ -351,9 +351,15 @@ fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
             theme::accent().add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(Span::styled(
-            "unofficial TUI host for Hermes Agent",
+            "Native Rust TUI for Hermes Agent",
             theme::dim(),
         )));
+        if let Some(v) = &chat.update_available {
+            lines.push(Line::from(Span::styled(
+                crate::update::notice_line(v),
+                Style::default().fg(theme::WARNING()),
+            )));
+        }
         lines.push(Line::from(""));
     } else {
         let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);

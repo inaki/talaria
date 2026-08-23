@@ -95,6 +95,7 @@ pub struct Chat {
     pub(crate) last_turn_secs: Option<u64>,
     pub(crate) session_title: String,
     pub(crate) pending_usage: bool,
+    pub(crate) update_available: Option<String>,
 }
 
 impl Chat {
@@ -141,6 +142,7 @@ impl Chat {
             last_turn_secs: None,
             session_title: String::new(),
             pending_usage: false,
+            update_available: None,
         }
     }
 

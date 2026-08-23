@@ -1,4 +1,4 @@
-//! Talaria: unofficial native ratatui host for Hermes Agent `tui_gateway`.
+//! Talaria Client: native Rust TUI for Hermes Agent `tui_gateway`.
 //!
 //! Library-first: tests and the binary share this crate. `main.rs` stays thin.
 //! Not affiliated with Nous Research. See `NOTICE.md`.
@@ -16,6 +16,7 @@ pub mod session;
 pub mod shell;
 pub mod theme;
 pub mod ui;
+pub mod update;
 pub mod user_messages;
 
 pub use app::{run_tui, run_tui_with_options, RunOptions};

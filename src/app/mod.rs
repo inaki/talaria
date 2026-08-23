@@ -28,6 +28,7 @@ pub struct App {
     pub(crate) tokio_handle: Option<tokio::runtime::Handle>,
     pub(crate) last_cols: u16,
     pub(crate) last_rows: u16,
+    pub(crate) update_rx: Option<mpsc::Receiver<String>>,
 }
 
 impl App {
@@ -40,6 +41,7 @@ impl App {
             tokio_handle: None,
             last_cols: 80,
             last_rows: 24,
+            update_rx: None,
         }
     }
 }

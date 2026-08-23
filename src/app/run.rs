@@ -64,6 +64,20 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
 
     let _enter = rt.enter();
     attach_session(&mut app, &options, rt.handle());
+    if live {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        app.update_rx = Some(rx);
+        rt.handle().spawn(async move {
+            let latest = tokio::task::spawn_blocking(crate::update::check_blocking)
+                .await
+                .ok()
+                .flatten();
+            if let Some(v) = latest {
+                crate::logging::log_line(&format!("update available: {v}"));
+                let _ = tx.send(v).await;
+            }
+        });
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
