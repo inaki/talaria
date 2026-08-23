@@ -36,8 +36,6 @@
       position: relative;
       overflow: hidden;
       padding: 3rem 0 2.25rem;
-      margin-bottom: 0.5rem;
-      border-bottom: 1px solid var(--line);
       background:
         radial-gradient(80% 90% at 12% -10%, #ffd70022, transparent 55%),
         radial-gradient(60% 80% at 90% 0%, #daa52014, transparent 50%),
@@ -56,10 +54,15 @@
       );
       pointer-events: none;
     }
-    .hero-inner { position: relative; }
+    .hero-inner {
+      position: relative;
+      text-align: center;
+      padding-bottom: 0;
+    }
     .kicker {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 0.55rem;
       color: var(--dim);
       letter-spacing: 0.14em;
@@ -108,13 +111,14 @@
     }
     .lede {
       color: var(--muted);
-      margin: 1.15rem 0 0;
+      margin: 1.15rem auto 0;
       max-width: 38rem;
     }
     .lede strong { color: var(--amber); font-weight: 500; }
     nav {
       display: flex;
       flex-wrap: wrap;
+      justify-content: center;
       gap: 0.55rem;
       margin: 1.4rem 0 0;
     }
