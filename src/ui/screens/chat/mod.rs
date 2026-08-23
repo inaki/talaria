@@ -256,16 +256,38 @@ impl Chat {
                 self.mark_turn_started();
                 let name = name.unwrap_or_else(|| "tool".into());
                 let args = crate::logging::sanitize_tool_text(&name, args.as_deref().unwrap_or(""));
-                self.items.push(TimelineItem::Tool {
-                    tool_id,
-                    name,
-                    args,
-                    preview: String::new(),
-                    result: String::new(),
-                    error: None,
-                    done: false,
-                    expanded: false,
-                });
+                if let Some(i) = self.items.iter().rposition(|it| {
+                    matches!(it, TimelineItem::Tool { tool_id: id, .. } if id == &tool_id)
+                }) {
+                    if let TimelineItem::Tool {
+                        name: n,
+                        args: a,
+                        preview,
+                        result,
+                        error,
+                        done,
+                        ..
+                    } = &mut self.items[i]
+                    {
+                        *n = name;
+                        *a = args;
+                        preview.clear();
+                        result.clear();
+                        *error = None;
+                        *done = false;
+                    }
+                } else {
+                    self.items.push(TimelineItem::Tool {
+                        tool_id,
+                        name,
+                        args,
+                        preview: String::new(),
+                        result: String::new(),
+                        error: None,
+                        done: false,
+                        expanded: false,
+                    });
+                }
                 self.scroll_to_bottom();
             }
             SessionEvent::ToolProgress {
@@ -533,12 +555,12 @@ impl Chat {
                 if !text.is_empty() {
                     self.notice = Some(truncate_notice(&text));
                 }
-                match self.items.last_mut() {
-                    Some(TimelineItem::Thinking { text: buf, live }) if *live => {
+                if let Some(i) = self.last_live_thinking() {
+                    if let TimelineItem::Thinking { text: buf, .. } = &mut self.items[i] {
                         buf.push_str(&text);
                     }
-                    _ if text.is_empty() => {}
-                    _ => self.items.push(TimelineItem::Thinking { text, live: true }),
+                } else if !text.is_empty() {
+                    self.items.push(TimelineItem::Thinking { text, live: true });
                 }
                 self.scroll_to_bottom();
             }
@@ -1000,9 +1022,17 @@ impl Chat {
         }
     }
 
+    fn last_live_thinking(&self) -> Option<usize> {
+        self.items
+            .iter()
+            .rposition(|it| matches!(it, TimelineItem::Thinking { live: true, .. }))
+    }
+
     fn seal_thinking(&mut self) {
-        if let Some(TimelineItem::Thinking { live, .. }) = self.items.last_mut() {
-            *live = false;
+        for item in &mut self.items {
+            if let TimelineItem::Thinking { live, .. } = item {
+                *live = false;
+            }
         }
     }
 
@@ -1437,6 +1467,61 @@ mod tests {
         }
         match &chat.items[2] {
             TimelineItem::User { row_id, .. } => assert_eq!(*row_id, None),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn thinking_after_tool_appends_to_one_block() {
+        let mut chat = Chat::new();
+        chat.apply_event(SessionEvent::Thinking {
+            text: "deliberating".into(),
+        });
+        chat.apply_event(SessionEvent::ToolStart {
+            tool_id: "t1".into(),
+            name: Some("session_search".into()),
+            args: None,
+        });
+        chat.apply_event(SessionEvent::ToolComplete {
+            tool_id: "t1".into(),
+            name: Some("session_search".into()),
+            result: Some("ok".into()),
+            error: None,
+        });
+        chat.apply_event(SessionEvent::Thinking {
+            text: " formulating".into(),
+        });
+        chat.apply_event(SessionEvent::ToolStart {
+            tool_id: "t1".into(),
+            name: Some("session_search".into()),
+            args: None,
+        });
+        let thinks: Vec<_> = chat
+            .items
+            .iter()
+            .filter(|it| matches!(it, TimelineItem::Thinking { .. }))
+            .collect();
+        assert_eq!(thinks.len(), 1, "{:?}", chat.items.len());
+        match &chat.items[0] {
+            TimelineItem::Thinking { text, live } => {
+                assert_eq!(text, "deliberating formulating");
+                assert!(*live);
+            }
+            other => panic!("{other:?}"),
+        }
+        let tools: Vec<_> = chat
+            .items
+            .iter()
+            .filter(|it| matches!(it, TimelineItem::Tool { .. }))
+            .collect();
+        assert_eq!(tools.len(), 1, "same tool_id should not duplicate a card");
+        chat.apply_event(SessionEvent::MessageDelta {
+            session_id: None,
+            text: "hi".into(),
+            rendered: None,
+        });
+        match &chat.items[0] {
+            TimelineItem::Thinking { live, .. } => assert!(!*live),
             other => panic!("{other:?}"),
         }
     }

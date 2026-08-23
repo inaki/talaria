@@ -146,7 +146,8 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     .map(|l| Line::from(Span::styled((*l).to_string(), theme::dim())))
                     .collect();
                 let mut title = vec![Span::styled(" thinking", theme::dim())];
-                if *live {
+                let is_last = i + 1 == chat.items.len();
+                if *live && is_last {
                     title.push(Span::raw(" "));
                     title.push(chat.spinner.span(theme::accent()));
                 }
