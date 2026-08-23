@@ -173,6 +173,18 @@
       color: var(--dim);
       font-size: 0.9rem;
     }
+    .install-label {
+      margin: 1.1rem 0 0.4rem;
+      color: var(--amber);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .install-label span {
+      color: var(--dim);
+      letter-spacing: 0.04em;
+      text-transform: none;
+    }
     ul { padding-left: 1.2rem; color: var(--muted); }
     li { margin: 0.3rem 0; }
     footer {
@@ -195,6 +207,7 @@
       <p class="lede">Native <strong>ratatui</strong> host for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
       <nav>
         <a href="https://github.com/inaki/talaria">GitHub</a>
+        <a href="https://github.com/inaki/homebrew-talaria">Homebrew</a>
         <a href="https://github.com/inaki/talaria/blob/main/NOTICE.md">Notice</a>
         <a href="https://github.com/inaki/talaria/blob/main/LICENSE">MIT license</a>
         <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
@@ -211,9 +224,11 @@
 
     <h2>Install</h2>
     <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
-    <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
-brew install inaki/talaria/talaria
+    <p class="install-label">Homebrew <span>macOS · builds from source</span></p>
+    <pre><code>brew install inaki/talaria/talaria
 talaria</code></pre>
+    <p class="install-label">curl <span>macOS / Linux · prebuilt binary</span></p>
+    <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash</code></pre>
 
     <h2>What it is</h2>
     <ul>
