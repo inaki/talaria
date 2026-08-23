@@ -70,7 +70,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     for item in &chat.items {
         match item {
-            TimelineItem::User(t) => {
+            TimelineItem::User { text: t, .. } => {
                 lines.push(Line::from(Span::styled("you", theme::user())));
                 for l in t.split('\n') {
                     lines.push(Line::from(Span::styled(format!("  {l}"), theme::user())));
@@ -128,10 +128,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                         format!("▸ tool  {name}  [{state}]  {hint}"),
                         theme::tool(),
                     )));
-                    lines.push(Line::from(Span::styled(
-                        "  Ctrl+O expand",
-                        theme::dim(),
-                    )));
+                    lines.push(Line::from(Span::styled("  Ctrl+O expand", theme::dim())));
                 } else {
                     let mark = if *done { "└" } else { "│" };
                     lines.push(Line::from(Span::styled(

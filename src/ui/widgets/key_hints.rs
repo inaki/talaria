@@ -22,6 +22,7 @@ impl<'a> KeyHints<'a> {
             ("Esc", "interrupt"),
             ("Ctrl+O", "tool"),
             ("Ctrl+V", "paste img"),
+            ("/rewind", "edit"),
             ("Ctrl+C", "quit"),
         ])
     }

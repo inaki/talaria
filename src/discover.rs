@@ -246,7 +246,9 @@ fn push_venv(
             .map(|p| p.join("hermes-agent"));
         out.push(Candidate {
             python,
-            src_root: src.filter(|p| p.exists()).or_else(|| Some(root.to_path_buf())),
+            src_root: src
+                .filter(|p| p.exists())
+                .or_else(|| Some(root.to_path_buf())),
             why: why.to_string(),
         });
     }
@@ -423,10 +425,7 @@ mod tests {
 
     #[test]
     fn launcher_shebang_extracts_python() {
-        let tmp = std::env::temp_dir().join(format!(
-            "hermes-rust-launch-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("hermes-rust-launch-{}", std::process::id()));
         let venv_py = tmp.join("hermes-agent/venv/bin/python");
         std::fs::create_dir_all(venv_py.parent().unwrap()).unwrap();
         std::fs::write(&venv_py, "").unwrap();

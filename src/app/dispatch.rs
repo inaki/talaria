@@ -118,5 +118,28 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
                 session.send(SessionCommand::LoadSpawnTree { path });
             }
         }
+        ScreenAction::OpenRewind => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_rewind();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::FetchHistory);
+            }
+        }
+        ScreenAction::Rewind {
+            text,
+            truncate_before_row_id,
+            confirm_empty_truncate,
+        } => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.apply_rewind_locally(truncate_before_row_id, text.clone());
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::Interrupt);
+                session.send(SessionCommand::Rewind {
+                    text,
+                    truncate_before_row_id,
+                    confirm_empty_truncate,
+                });
+            }
+        }
     }
 }

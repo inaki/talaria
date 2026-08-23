@@ -155,6 +155,7 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         }),
         "agents" => Some(ScreenAction::OpenAgents),
         "trees" => Some(ScreenAction::OpenSpawnTrees),
+        "rewind" | "restore" => Some(ScreenAction::OpenRewind),
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));

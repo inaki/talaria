@@ -28,3 +28,5 @@ cargo run                                 # TUI
 ```
 
 Logs: `~/.hermes-rust/logs/hermes-rust.log` (always on, 0600). Never writes `~/.hermes`.
+
+`/rewind` regenerates from a past user turn. It only offers turns that have a durable `row_id` (from `session.history` / resume). Confirming sends `confirm_truncate` + `truncate_before_row_id` — ordinary Enter never truncates.

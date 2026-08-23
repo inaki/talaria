@@ -71,6 +71,12 @@ pub enum ScreenAction {
     LoadSpawnTree {
         path: String,
     },
+    OpenRewind,
+    Rewind {
+        text: String,
+        truncate_before_row_id: i64,
+        confirm_empty_truncate: bool,
+    },
 }
 
 pub enum CurrentScreen {

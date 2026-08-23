@@ -25,7 +25,7 @@ Last updated: 2026-08-22.
 | Steer mid-turn | Yes | Enter while streaming → `session.steer` |
 | Subagents | Partial | Timeline + `/agents` overlay; interrupt selected child |
 | Image attach | Partial | Path paste + **Ctrl+V** `clipboard.paste` (gateway reads OS clipboard) |
-| Rewind / edit | No | Track C: needs `truncate_before_row_id` from resume |
+| Rewind / edit | Yes | `/rewind` lists `session.history` user turns with `row_id`; confirm → `prompt.submit` with `confirm_truncate` + `truncate_before_row_id` (+ `confirm_empty_truncate` on the first turn). Ordinary send stays `{session_id, text}` only |
 | Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |
 | WebSocket attach / sidecar | No | Stdio only |
 | Packaging as `hermes` | No | Binary is `hermes-rust` |

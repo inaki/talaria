@@ -74,6 +74,12 @@ pub enum SessionCommand {
     LoadSpawnTree {
         path: String,
     },
+    FetchHistory,
+    Rewind {
+        text: String,
+        truncate_before_row_id: i64,
+        confirm_empty_truncate: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +200,12 @@ pub enum SessionEvent {
     SpawnTrees {
         entries: Vec<SpawnTreeEntry>,
     },
+    History {
+        messages: Vec<TranscriptMessage>,
+    },
+    RewindApplied {
+        survivor_user_row_ids: Option<Vec<Option<i64>>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +257,17 @@ pub struct ActiveSession {
 pub struct TranscriptMessage {
     pub role: String,
     pub text: String,
+    pub row_id: Option<i64>,
+    pub display_kind: Option<String>,
+}
+
+/// A user turn the rewind picker can address. `first` maps to gateway
+/// `confirm_empty_truncate` (ordinal 0 / empty-transcript cut).
+#[derive(Debug, Clone)]
+pub struct RewindTurn {
+    pub row_id: i64,
+    pub text: String,
+    pub first: bool,
 }
 
 pub trait SessionApi {
@@ -419,6 +442,46 @@ async fn handle_live_cmd(
             }
             do_submit(client, session_id.as_deref(), &text).await
         }
+        SessionCommand::FetchHistory => {
+            let Some(sid) = session_id.as_deref() else {
+                return Err(GatewayError::Protocol("no session_id yet".into()));
+            };
+            let result = client
+                .request("session.history", json!({ "session_id": sid }))
+                .await?;
+            let _ = ev_tx
+                .send(SessionEvent::History {
+                    messages: parse_transcript_messages(&result),
+                })
+                .await;
+            Ok(())
+        }
+        SessionCommand::Rewind {
+            text,
+            truncate_before_row_id,
+            confirm_empty_truncate,
+        } => {
+            let Some(sid) = session_id.as_deref() else {
+                return Err(GatewayError::Protocol("no session_id yet".into()));
+            };
+            let result = client
+                .request(
+                    "prompt.submit",
+                    rewind_submit_params(
+                        sid,
+                        &text,
+                        truncate_before_row_id,
+                        confirm_empty_truncate,
+                    ),
+                )
+                .await?;
+            let _ = ev_tx
+                .send(SessionEvent::RewindApplied {
+                    survivor_user_row_ids: parse_survivor_user_row_ids(&result),
+                })
+                .await;
+            Ok(())
+        }
         SessionCommand::Interrupt => {
             if let Some(sid) = session_id.as_deref() {
                 let _ = client
@@ -584,7 +647,10 @@ async fn handle_live_cmd(
             let result = client
                 .request("clipboard.paste", json!({ "session_id": sid }))
                 .await?;
-            let attached = result.get("attached").and_then(|v| v.as_bool()).unwrap_or(false);
+            let attached = result
+                .get("attached")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let msg = result
                 .get("message")
                 .or_else(|| result.get("text"))
@@ -630,9 +696,61 @@ async fn do_submit(
     };
     // Ordinary submit is {session_id, text} only — never truncation params.
     let _ = client
-        .request("prompt.submit", json!({ "session_id": sid, "text": text }))
+        .request("prompt.submit", ordinary_submit_params(sid, text))
         .await?;
     Ok(())
+}
+
+pub(crate) fn ordinary_submit_params(session_id: &str, text: &str) -> Value {
+    json!({ "session_id": session_id, "text": text })
+}
+
+pub(crate) fn rewind_submit_params(
+    session_id: &str,
+    text: &str,
+    truncate_before_row_id: i64,
+    confirm_empty_truncate: bool,
+) -> Value {
+    let mut params = json!({
+        "session_id": session_id,
+        "text": text,
+        "confirm_truncate": true,
+        "truncate_before_row_id": truncate_before_row_id,
+    });
+    if confirm_empty_truncate {
+        params["confirm_empty_truncate"] = json!(true);
+    }
+    params
+}
+
+pub(crate) fn parse_survivor_user_row_ids(result: &Value) -> Option<Vec<Option<i64>>> {
+    let raw = result.get("survivor_user_row_ids")?.as_array()?;
+    Some(raw.iter().map(json_i64).collect())
+}
+
+fn json_i64(v: &Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_u64().and_then(|u| i64::try_from(u).ok()))
+}
+
+pub(crate) fn rewind_turns_from_messages(messages: &[TranscriptMessage]) -> Vec<RewindTurn> {
+    let mut turns = Vec::new();
+    for m in messages {
+        if m.role != "user" {
+            continue;
+        }
+        if m.display_kind.as_deref().is_some_and(|d| !d.is_empty()) {
+            continue;
+        }
+        let Some(row_id) = m.row_id else { continue };
+        let first = turns.is_empty();
+        turns.push(RewindTurn {
+            row_id,
+            text: m.text.clone(),
+            first,
+        });
+    }
+    turns
 }
 
 async fn emit_err(ev_tx: &mpsc::Sender<SessionEvent>, e: GatewayError) {
@@ -1043,7 +1161,18 @@ fn parse_transcript_messages(result: &Value) -> Vec<TranscriptMessage> {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    Some(TranscriptMessage { role, text })
+                    let row_id = m.get("row_id").and_then(json_i64);
+                    let display_kind = m
+                        .get("display_kind")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    Some(TranscriptMessage {
+                        role,
+                        text,
+                        row_id,
+                        display_kind,
+                    })
                 })
                 .collect()
         })
@@ -1276,10 +1405,14 @@ async fn mock_loop(
                             TranscriptMessage {
                                 role: "user".into(),
                                 text: format!("(resumed {sid})"),
+                                row_id: Some(11),
+                                display_kind: None,
                             },
                             TranscriptMessage {
                                 role: "assistant".into(),
                                 text: "Welcome back. This is mock history.".into(),
+                                row_id: Some(12),
+                                display_kind: None,
                             },
                         ],
                     })
@@ -1377,6 +1510,40 @@ async fn mock_loop(
                     .send(SessionEvent::Status(format!("loaded {path} (mock)")))
                     .await;
             }
+            SessionCommand::FetchHistory => {
+                let _ = ev_tx
+                    .send(SessionEvent::History {
+                        messages: vec![
+                            TranscriptMessage {
+                                role: "user".into(),
+                                text: "first question".into(),
+                                row_id: Some(11),
+                                display_kind: None,
+                            },
+                            TranscriptMessage {
+                                role: "assistant".into(),
+                                text: "first answer".into(),
+                                row_id: Some(12),
+                                display_kind: None,
+                            },
+                            TranscriptMessage {
+                                role: "user".into(),
+                                text: "second question".into(),
+                                row_id: Some(13),
+                                display_kind: None,
+                            },
+                        ],
+                    })
+                    .await;
+            }
+            SessionCommand::Rewind { text, .. } => {
+                let _ = ev_tx
+                    .send(SessionEvent::RewindApplied {
+                        survivor_user_row_ids: Some(vec![Some(101)]),
+                    })
+                    .await;
+                play_scenario(scenario, &text, &ev_tx).await;
+            }
             SessionCommand::Shutdown | SessionCommand::Close => break,
             _ => {}
         }
@@ -1421,6 +1588,10 @@ fn mock_catalog() -> SessionEvent {
             SlashCommand {
                 name: "trees".into(),
                 help: "saved spawn trees".into(),
+            },
+            SlashCommand {
+                name: "rewind".into(),
+                help: "regenerate from a past user turn".into(),
             },
         ],
         warning: None,
@@ -1639,5 +1810,70 @@ mod tests {
         }
         assert!(complete);
         mock.send(SessionCommand::Shutdown);
+    }
+
+    #[test]
+    fn ordinary_submit_is_session_and_text_only() {
+        let p = ordinary_submit_params("sess-1", "hello");
+        let obj = p.as_object().expect("object");
+        assert_eq!(obj.len(), 2);
+        assert_eq!(obj["session_id"], "sess-1");
+        assert_eq!(obj["text"], "hello");
+        for forbidden in [
+            "confirm_truncate",
+            "confirm_empty_truncate",
+            "truncate_before_row_id",
+            "truncate_before_user_ordinal",
+            "truncate_before_message_id",
+        ] {
+            assert!(
+                !obj.contains_key(forbidden),
+                "{forbidden} must not ride along"
+            );
+        }
+    }
+
+    #[test]
+    fn rewind_submit_sends_confirm_and_row_id() {
+        let p = rewind_submit_params("sess-1", "hello", 42, false);
+        assert_eq!(p["session_id"], "sess-1");
+        assert_eq!(p["text"], "hello");
+        assert_eq!(p["confirm_truncate"], true);
+        assert_eq!(p["truncate_before_row_id"], 42);
+        assert!(p.get("truncate_before_user_ordinal").is_none());
+        assert!(p.get("truncate_before_message_id").is_none());
+        assert!(p.get("confirm_empty_truncate").is_none());
+
+        let empty = rewind_submit_params("sess-1", "hello", 7, true);
+        assert_eq!(empty["confirm_empty_truncate"], true);
+        assert_eq!(empty["truncate_before_row_id"], 7);
+    }
+
+    #[test]
+    fn parse_transcript_row_ids() {
+        let msgs = parse_transcript_messages(&json!({
+            "messages": [
+                {"role": "user", "text": "hi", "row_id": 13},
+                {"role": "assistant", "text": "yo"},
+                {"role": "user", "text": "skill", "row_id": 14, "display_kind": "skill_invocation"},
+            ]
+        }));
+        assert_eq!(msgs[0].row_id, Some(13));
+        assert_eq!(msgs[1].row_id, None);
+        assert_eq!(msgs[2].display_kind.as_deref(), Some("skill_invocation"));
+        let turns = rewind_turns_from_messages(&msgs);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].row_id, 13);
+        assert!(turns[0].first);
+    }
+
+    #[test]
+    fn parse_survivor_row_ids() {
+        let ids = parse_survivor_user_row_ids(&json!({
+            "status": "streaming",
+            "survivor_user_row_ids": [7, null, 9]
+        }));
+        assert_eq!(ids, Some(vec![Some(7), None, Some(9)]));
+        assert!(parse_survivor_user_row_ids(&json!({"status": "streaming"})).is_none());
     }
 }

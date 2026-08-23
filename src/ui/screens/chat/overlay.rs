@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::session::{ActiveSession, SavedSession, SpawnTreeEntry, SubagentRow};
+use crate::session::{ActiveSession, RewindTurn, SavedSession, SpawnTreeEntry, SubagentRow};
 use crate::theme;
 use crate::ui::keys::{is_ctrl_c, typed_char};
 use crate::ui::screens::ScreenAction;
@@ -65,6 +65,12 @@ pub enum Overlay {
         entries: Vec<SpawnTreeEntry>,
         selected: usize,
         loading: bool,
+    },
+    Rewind {
+        turns: Vec<RewindTurn>,
+        selected: usize,
+        loading: bool,
+        confirming: bool,
     },
 }
 
@@ -342,6 +348,48 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
             }
             None
         }
+        Overlay::Rewind {
+            turns,
+            selected,
+            loading,
+            confirming,
+        } => {
+            if *confirming {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        *confirming = false;
+                        None
+                    }
+                    KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        let turn = turns.get(*selected).cloned();
+                        overlay.close();
+                        turn.map(|t| ScreenAction::Rewind {
+                            text: t.text,
+                            truncate_before_row_id: t.row_id,
+                            confirm_empty_truncate: t.first,
+                        })
+                    }
+                    _ => None,
+                }
+            } else {
+                if key.code == KeyCode::Esc {
+                    overlay.close();
+                    return None;
+                }
+                if key.code == KeyCode::Up {
+                    *selected = selected.saturating_sub(1);
+                    return None;
+                }
+                if key.code == KeyCode::Down && !turns.is_empty() {
+                    *selected = (*selected + 1).min(turns.len() - 1);
+                    return None;
+                }
+                if key.code == KeyCode::Enter && !turns.is_empty() && !*loading {
+                    *confirming = true;
+                }
+                None
+            }
+        }
     }
 }
 
@@ -572,6 +620,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/branch                fork this session"),
                 Line::from("/agents                live subagents (Enter interrupts)"),
                 Line::from("/trees                 spawn-tree snapshots"),
+                Line::from("/rewind               regenerate from a user turn (row_id)"),
                 Line::from("/clear  /quit"),
                 Line::from("Ctrl+O           expand last tool card"),
                 Line::from("Ctrl+V           paste clipboard image (gateway)"),
@@ -628,7 +677,10 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 lines.push(Line::from(Span::styled("loading…", theme::dim())));
             }
             if entries.is_empty() && !*loading {
-                lines.push(Line::from(Span::styled("no spawn trees saved", theme::dim())));
+                lines.push(Line::from(Span::styled(
+                    "no spawn trees saved",
+                    theme::dim(),
+                )));
             }
             for (i, e) in entries.iter().enumerate() {
                 let mark = if i == *selected { "▸ " } else { "  " };
@@ -642,6 +694,59 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )));
             }
             paint_modal(f, area, " spawn trees ", lines, 14);
+        }
+        Overlay::Rewind {
+            turns,
+            selected,
+            loading,
+            confirming,
+        } => {
+            if *confirming {
+                let preview = turns.get(*selected).map(|t| t.text.as_str()).unwrap_or("");
+                let lines = vec![
+                    Line::from(Span::styled(
+                        "This drops that turn and everything after it.",
+                        theme::error(),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(truncate(preview, 80), theme::text())),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "y / Enter confirm   ·   n / Esc cancel",
+                        theme::dim(),
+                    )),
+                ];
+                paint_modal(f, area, " confirm rewind ", lines, 10);
+            } else {
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        "Enter selects a user turn with a durable row_id",
+                        theme::dim(),
+                    )),
+                    Line::from(""),
+                ];
+                if *loading {
+                    lines.push(Line::from(Span::styled("loading history…", theme::dim())));
+                }
+                if turns.is_empty() && !*loading {
+                    lines.push(Line::from(Span::styled(
+                        "no rewind targets (need session.history row_id)",
+                        theme::dim(),
+                    )));
+                }
+                for (i, t) in turns.iter().enumerate() {
+                    let mark = if i == *selected { "▸ " } else { "  " };
+                    lines.push(Line::from(Span::styled(
+                        format!("{mark}#{}  {}", t.row_id, truncate(&t.text, 56)),
+                        if i == *selected {
+                            theme::accent()
+                        } else {
+                            theme::text()
+                        },
+                    )));
+                }
+                paint_modal(f, area, " rewind ", lines, 16);
+            }
         }
     }
 }
@@ -705,5 +810,76 @@ mod tests {
             }
         }
         assert!(overlay.is_open());
+    }
+
+    #[test]
+    fn rewind_confirm_sends_row_id_not_ordinal() {
+        let mut overlay = Overlay::Rewind {
+            turns: vec![
+                RewindTurn {
+                    row_id: 11,
+                    text: "first".into(),
+                    first: true,
+                },
+                RewindTurn {
+                    row_id: 13,
+                    text: "second".into(),
+                    first: false,
+                },
+            ],
+            selected: 1,
+            loading: false,
+            confirming: false,
+        };
+        let enter = KeyEvent::from(KeyCode::Enter);
+        assert!(handle_overlay_key(&mut overlay, enter).is_none());
+        assert!(matches!(
+            overlay,
+            Overlay::Rewind {
+                confirming: true,
+                selected: 1,
+                ..
+            }
+        ));
+        let yes = KeyEvent::from(KeyCode::Char('y'));
+        match handle_overlay_key(&mut overlay, yes) {
+            Some(ScreenAction::Rewind {
+                text,
+                truncate_before_row_id,
+                confirm_empty_truncate,
+            }) => {
+                assert_eq!(text, "second");
+                assert_eq!(truncate_before_row_id, 13);
+                assert!(!confirm_empty_truncate);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn rewind_first_turn_sets_empty_truncate() {
+        let mut overlay = Overlay::Rewind {
+            turns: vec![RewindTurn {
+                row_id: 7,
+                text: "only".into(),
+                first: true,
+            }],
+            selected: 0,
+            loading: false,
+            confirming: true,
+        };
+        let enter = KeyEvent::from(KeyCode::Enter);
+        match handle_overlay_key(&mut overlay, enter) {
+            Some(ScreenAction::Rewind {
+                truncate_before_row_id,
+                confirm_empty_truncate,
+                ..
+            }) => {
+                assert_eq!(truncate_before_row_id, 7);
+                assert!(confirm_empty_truncate);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

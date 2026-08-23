@@ -631,4 +631,33 @@ mod tests {
             .await;
         client.shutdown().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn history_row_id_and_rewind_survivors() {
+        std::env::set_var("HERMES_TUI_STARTUP_TIMEOUT_MS", "8000");
+        let client = GatewayClient::spawn(fake_opts()).await.unwrap();
+        let created = client
+            .request("session.create", json!({"cwd": ".", "cols": 80}))
+            .await
+            .unwrap();
+        let sid = created["session_id"].as_str().unwrap();
+        let history = client
+            .request("session.history", json!({ "session_id": sid }))
+            .await
+            .unwrap();
+        assert_eq!(history["messages"][0]["row_id"], 11);
+
+        let ordinary = crate::session::ordinary_submit_params(sid, "hello");
+        assert_eq!(ordinary.as_object().unwrap().len(), 2);
+
+        let rewind = client
+            .request(
+                "prompt.submit",
+                crate::session::rewind_submit_params(sid, "hello", 11, true),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rewind["survivor_user_row_ids"], json!([]));
+        client.shutdown().await.unwrap();
+    }
 }

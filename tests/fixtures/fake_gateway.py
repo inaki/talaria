@@ -75,7 +75,12 @@ def main() -> None:
                 }
             )
         elif method == "prompt.submit":
-            emit({"jsonrpc": "2.0", "id": rid, "result": {"ok": True}})
+            result = {"ok": True, "status": "streaming"}
+            if params.get("confirm_truncate"):
+                result["survivor_user_row_ids"] = (
+                    [] if params.get("confirm_empty_truncate") else [1]
+                )
+            emit({"jsonrpc": "2.0", "id": rid, "result": result})
             text = (params.get("text") or "hello") + " from fake gateway."
             emit(
                 {
@@ -168,10 +173,24 @@ def main() -> None:
                         "session_id": "sess-resumed",
                         "resumed": params.get("session_id"),
                         "messages": [
-                            {"role": "user", "text": "old question"},
-                            {"role": "assistant", "text": "old answer"},
+                            {"role": "user", "text": "old question", "row_id": 11},
+                            {"role": "assistant", "text": "old answer", "row_id": 12},
                         ],
                         "info": {"model": "fake-model", "lazy": True},
+                    },
+                }
+            )
+        elif method == "session.history":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "result": {
+                        "count": 2,
+                        "messages": [
+                            {"role": "user", "text": "old question", "row_id": 11},
+                            {"role": "assistant", "text": "old answer", "row_id": 12},
+                        ],
                     },
                 }
             )

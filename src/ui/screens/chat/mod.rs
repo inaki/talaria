@@ -4,7 +4,9 @@ use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
-use crate::session::{SessionEvent, SubagentKind, SubagentRow};
+use crate::session::{
+    rewind_turns_from_messages, SessionEvent, SubagentKind, SubagentRow, TranscriptMessage,
+};
 use crate::ui::screens::{Screen, ScreenAction};
 use crate::ui::widgets::{KeyHints, SlashItem, SlashMenu, Spinner, TextComposer};
 
@@ -17,7 +19,10 @@ pub(crate) use overlay::Overlay;
 
 #[derive(Debug, Clone)]
 pub enum TimelineItem {
-    User(String),
+    User {
+        text: String,
+        row_id: Option<i64>,
+    },
     Assistant {
         text: String,
         streaming: bool,
@@ -378,7 +383,10 @@ impl Chat {
                 self.items.clear();
                 for m in messages {
                     match m.role.as_str() {
-                        "user" => self.items.push(TimelineItem::User(m.text)),
+                        "user" => self.items.push(TimelineItem::User {
+                            text: m.text,
+                            row_id: m.row_id,
+                        }),
                         "assistant" => self.items.push(TimelineItem::Assistant {
                             text: m.text,
                             streaming: false,
@@ -433,10 +441,7 @@ impl Chat {
                     Some(TimelineItem::Thinking { text: buf, live }) if *live => {
                         buf.push_str(&text);
                     }
-                    _ => self.items.push(TimelineItem::Thinking {
-                        text,
-                        live: true,
-                    }),
+                    _ => self.items.push(TimelineItem::Thinking { text, live: true }),
                 }
                 self.scroll_to_bottom();
             }
@@ -449,6 +454,31 @@ impl Chat {
                 {
                     *list = entries;
                     *loading = false;
+                }
+            }
+            SessionEvent::History { messages } => {
+                self.stamp_user_row_ids(&messages);
+                if let Overlay::Rewind {
+                    turns,
+                    loading,
+                    selected,
+                    ..
+                } = &mut self.overlay
+                {
+                    *turns = rewind_turns_from_messages(&messages);
+                    *loading = false;
+                    if !turns.is_empty() {
+                        *selected = (*selected).min(turns.len() - 1);
+                    } else {
+                        *selected = 0;
+                    }
+                }
+            }
+            SessionEvent::RewindApplied {
+                survivor_user_row_ids,
+            } => {
+                if let Some(ids) = survivor_user_row_ids {
+                    self.rebind_survivor_row_ids(&ids);
                 }
             }
             SessionEvent::Subagent {
@@ -512,8 +542,74 @@ impl Chat {
     }
 
     pub fn push_user(&mut self, text: String) {
-        self.items.push(TimelineItem::User(text));
+        self.items.push(TimelineItem::User { text, row_id: None });
         self.scroll_to_bottom();
+    }
+
+    pub fn open_rewind(&mut self) {
+        self.slash.close();
+        let turns = rewind_turns_from_timeline(&self.items);
+        self.overlay = Overlay::Rewind {
+            turns,
+            selected: 0,
+            loading: true,
+            confirming: false,
+        };
+    }
+
+    pub fn apply_rewind_locally(&mut self, row_id: i64, text: String) {
+        if let Some(i) = self.items.iter().position(
+            |it| matches!(it, TimelineItem::User { row_id: Some(id), .. } if *id == row_id),
+        ) {
+            self.items.truncate(i);
+        } else if let Some(i) = self
+            .items
+            .iter()
+            .rposition(|it| matches!(it, TimelineItem::User { text: t, .. } if t == &text))
+        {
+            self.items.truncate(i);
+        }
+        self.push_user(text);
+        self.streaming = false;
+        self.thinking = false;
+    }
+
+    fn stamp_user_row_ids(&mut self, messages: &[TranscriptMessage]) {
+        let durable: Vec<(i64, &str)> = messages
+            .iter()
+            .filter(|m| m.role == "user" && m.display_kind.as_deref().unwrap_or("").is_empty())
+            .filter_map(|m| Some((m.row_id?, m.text.as_str())))
+            .collect();
+        for item in &mut self.items {
+            let TimelineItem::User { text, row_id } = item else {
+                continue;
+            };
+            if row_id.is_some() {
+                continue;
+            }
+            let matches: Vec<i64> = durable
+                .iter()
+                .filter(|(_, t)| *t == text.as_str())
+                .map(|(id, _)| *id)
+                .collect();
+            if matches.len() == 1 {
+                *row_id = Some(matches[0]);
+            }
+        }
+    }
+
+    fn rebind_survivor_row_ids(&mut self, survivors: &[Option<i64>]) {
+        let mut ordinal = 0usize;
+        for item in &mut self.items {
+            if let TimelineItem::User { row_id, .. } = item {
+                if ordinal < survivors.len() {
+                    *row_id = survivors[ordinal];
+                } else {
+                    *row_id = None;
+                }
+                ordinal += 1;
+            }
+        }
     }
 
     fn seal_thinking(&mut self) {
@@ -637,6 +733,25 @@ impl Chat {
     }
 }
 
+fn rewind_turns_from_timeline(items: &[TimelineItem]) -> Vec<crate::session::RewindTurn> {
+    let mut turns = Vec::new();
+    for item in items {
+        if let TimelineItem::User {
+            text,
+            row_id: Some(row_id),
+        } = item
+        {
+            let first = turns.is_empty();
+            turns.push(crate::session::RewindTurn {
+                row_id: *row_id,
+                text: text.clone(),
+                first,
+            });
+        }
+    }
+    turns
+}
+
 fn truncate_notice(s: &str) -> String {
     let one = s.replace('\n', " ");
     if one.chars().count() > 48 {
@@ -649,6 +764,52 @@ fn truncate_notice(s: &str) -> String {
 impl Default for Chat {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_rewind_drops_from_row_id_and_rebinds_survivors() {
+        let mut chat = Chat::new();
+        chat.items = vec![
+            TimelineItem::User {
+                text: "a".into(),
+                row_id: Some(1),
+            },
+            TimelineItem::Assistant {
+                text: "b".into(),
+                streaming: false,
+            },
+            TimelineItem::User {
+                text: "c".into(),
+                row_id: Some(2),
+            },
+            TimelineItem::Assistant {
+                text: "d".into(),
+                streaming: false,
+            },
+        ];
+        chat.apply_rewind_locally(2, "c-edit".into());
+        assert_eq!(chat.items.len(), 3);
+        match &chat.items[2] {
+            TimelineItem::User { text, row_id } => {
+                assert_eq!(text, "c-edit");
+                assert_eq!(*row_id, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        chat.rebind_survivor_row_ids(&[Some(101)]);
+        match &chat.items[0] {
+            TimelineItem::User { row_id, .. } => assert_eq!(*row_id, Some(101)),
+            other => panic!("{other:?}"),
+        }
+        match &chat.items[2] {
+            TimelineItem::User { row_id, .. } => assert_eq!(*row_id, None),
+            other => panic!("{other:?}"),
+        }
     }
 }
 
