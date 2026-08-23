@@ -72,6 +72,10 @@ pub enum Overlay {
         loading: bool,
         confirming: bool,
     },
+    Theme {
+        selected: usize,
+        saved_id: &'static str,
+    },
 }
 
 impl Overlay {
@@ -390,6 +394,41 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 None
             }
         }
+        Overlay::Theme { selected, saved_id } => {
+            if key.code == KeyCode::Esc {
+                let _ = theme::apply_theme(saved_id);
+                theme::sync_terminal_canvas();
+                overlay.close();
+                return None;
+            }
+            let n = theme::themes().len();
+            if key.code == KeyCode::Up {
+                *selected = selected.saturating_sub(1);
+                preview_theme(*selected);
+                return None;
+            }
+            if key.code == KeyCode::Down && n > 0 {
+                *selected = (*selected + 1).min(n - 1);
+                preview_theme(*selected);
+                return None;
+            }
+            if key.code == KeyCode::Enter {
+                if let Some(t) = theme::themes().get(*selected) {
+                    let _ = theme::apply_theme(t.id);
+                    theme::save_theme_id(t.id);
+                    theme::sync_terminal_canvas_hard();
+                }
+                overlay.close();
+            }
+            None
+        }
+    }
+}
+
+fn preview_theme(index: usize) {
+    if let Some(t) = theme::themes().get(index) {
+        let _ = theme::apply_theme(t.id);
+        theme::sync_terminal_canvas();
     }
 }
 
@@ -621,6 +660,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/agents                live subagents (Enter interrupts)"),
                 Line::from("/trees                 spawn-tree snapshots"),
                 Line::from("/rewind               regenerate from a user turn (row_id)"),
+                Line::from("/theme                gold / hermes / github palettes"),
                 Line::from("/clear  /quit"),
                 Line::from("Ctrl+O           expand last tool card"),
                 Line::from("Ctrl+V           paste clipboard image (gateway)"),
@@ -631,7 +671,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ];
-            paint_modal(f, area, " help ", lines, 20);
+            paint_modal(f, area, " help ", lines, 21);
         }
         Overlay::Agents {
             agents,
@@ -747,6 +787,32 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 }
                 paint_modal(f, area, " rewind ", lines, 16);
             }
+        }
+        Overlay::Theme { selected, saved_id } => {
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    "↑↓ preview   ·   Enter save   ·   Esc restore",
+                    theme::dim(),
+                )),
+                Line::from(""),
+            ];
+            for (i, t) in theme::themes().iter().enumerate() {
+                let mark = if i == *selected { "› " } else { "  " };
+                let saved = if t.id == *saved_id { "  (saved)" } else { "" };
+                lines.push(Line::from(Span::styled(
+                    format!("{mark}{}{saved}", t.label),
+                    if i == *selected {
+                        theme::accent().add_modifier(Modifier::BOLD)
+                    } else {
+                        theme::text()
+                    },
+                )));
+                lines.push(Line::from(Span::styled(
+                    format!("    {}", t.description),
+                    theme::dim(),
+                )));
+            }
+            paint_modal(f, area, " theme ", lines, 14);
         }
     }
 }

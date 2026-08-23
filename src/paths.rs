@@ -31,6 +31,10 @@ impl HermesRustPaths {
     pub fn history_file(&self) -> PathBuf {
         self.root.join("history")
     }
+
+    pub fn theme_file(&self) -> PathBuf {
+        self.root.join("theme")
+    }
 }
 
 impl Default for HermesRustPaths {

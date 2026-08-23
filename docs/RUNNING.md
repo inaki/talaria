@@ -29,4 +29,13 @@ cargo run                                 # TUI
 
 Logs: `~/.hermes-rust/logs/hermes-rust.log` (always on, 0600). Never writes `~/.hermes`.
 
+Themes: `github` (default), `gold` (bronze/navy), `hermes` (brand blue). `/theme` in the TUI, or:
+
+```bash
+cargo run -- --theme gold
+HERMES_RUST_THEME=hermes cargo run -- --dev --mock=streaming
+```
+
+Choice is saved to `~/.hermes-rust/theme`.
+
 `/rewind` regenerates from a past user turn. It only offers turns that have a durable `row_id` (from `session.history` / resume). Confirming sends `confirm_truncate` + `truncate_before_row_id` — ordinary Enter never truncates.

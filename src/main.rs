@@ -23,6 +23,7 @@ fn main() {
         dev: cli.dev || cli.mock.is_some(),
         mock: cli.mock.clone(),
         verbose: cli.verbose,
+        theme: cli.theme.clone(),
     }) {
         eprintln!("{e}");
         std::process::exit(1);

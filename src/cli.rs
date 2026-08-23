@@ -20,4 +20,8 @@ pub struct Cli {
     /// Canned MockSession script: streaming | tools | approval | error
     #[arg(long)]
     pub mock: Option<String>,
+
+    /// Color theme: github | gold | hermes (overrides saved `~/.hermes-rust/theme`)
+    #[arg(long)]
+    pub theme: Option<String>,
 }

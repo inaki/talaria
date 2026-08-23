@@ -16,6 +16,7 @@ pub struct RunOptions {
     pub dev: bool,
     pub mock: Option<String>,
     pub verbose: bool,
+    pub theme: Option<String>,
 }
 
 pub struct App {

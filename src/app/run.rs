@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyEventKind,
+    Event, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -37,6 +38,11 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
     crate::logging::init_file_logging();
     install_panic_hook();
 
+    let theme_id = crate::theme::resolve_startup_theme(options.theme.as_deref());
+    let _ = crate::theme::apply_theme(theme_id);
+    crate::theme::sync_terminal_canvas_hard();
+    log_line(&format!("theme: {theme_id}"));
+
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let mut app = App::new();
     app.tokio_handle = Some(rt.handle().clone());
@@ -46,11 +52,15 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
+    // Disambiguate Esc so Shift+Enter is Enter+SHIFT. Do not enable
+    // REPORT_ALL_KEYS_AS_ESCAPE_CODES — that reports physical `1`+SHIFT
+    // instead of `!`.
     execute!(
         stdout,
         EnterAlternateScreen,
         EnableBracketedPaste,
-        EnableMouseCapture
+        EnableMouseCapture,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
     )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -59,6 +69,7 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
 
     execute!(
         terminal.backend_mut(),
+        PopKeyboardEnhancementFlags,
         DisableMouseCapture,
         DisableBracketedPaste,
         LeaveAlternateScreen

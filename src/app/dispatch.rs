@@ -125,6 +125,10 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
                 session.send(SessionCommand::FetchHistory);
             }
         }
+        ScreenAction::OpenTheme => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_theme();
+        }
         ScreenAction::Rewind {
             text,
             truncate_before_row_id,

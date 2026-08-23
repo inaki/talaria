@@ -320,15 +320,15 @@ impl Chat {
                 }
             }
             SessionEvent::Catalog { commands, warning } => {
-                self.slash.set_commands(
-                    commands
-                        .into_iter()
-                        .map(|c| SlashItem {
-                            name: c.name,
-                            help: c.help,
-                        })
-                        .collect(),
-                );
+                let mut items: Vec<SlashItem> = commands
+                    .into_iter()
+                    .map(|c| SlashItem {
+                        name: c.name,
+                        help: c.help,
+                    })
+                    .collect();
+                merge_host_slash_commands(&mut items);
+                self.slash.set_commands(items);
                 if let Some(w) = warning {
                     self.notice = Some(w);
                 }
@@ -706,6 +706,16 @@ impl Chat {
         self.pending_send.take()
     }
 
+    pub fn open_theme(&mut self) {
+        self.slash.close();
+        let saved_id = crate::theme::current_theme_id();
+        let selected = crate::theme::themes()
+            .iter()
+            .position(|t| t.id == saved_id)
+            .unwrap_or(0);
+        self.overlay = Overlay::Theme { selected, saved_id };
+    }
+
     pub fn open_help(&mut self) {
         self.slash.close();
         self.overlay = Overlay::Help;
@@ -730,6 +740,22 @@ impl Chat {
             loading: true,
             notice: None,
         };
+    }
+}
+
+fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
+    for (name, help) in [
+        ("theme", "color theme"),
+        ("rewind", "regenerate from a past user turn"),
+        ("trees", "saved spawn trees"),
+        ("help", "keyboard help"),
+    ] {
+        if !items.iter().any(|c| c.name == name) {
+            items.push(SlashItem {
+                name: name.into(),
+                help: help.into(),
+            });
+        }
     }
 }
 

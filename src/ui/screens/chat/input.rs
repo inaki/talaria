@@ -156,6 +156,17 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         "agents" => Some(ScreenAction::OpenAgents),
         "trees" => Some(ScreenAction::OpenSpawnTrees),
         "rewind" | "restore" => Some(ScreenAction::OpenRewind),
+        "theme" if rest.is_empty() => Some(ScreenAction::OpenTheme),
+        "theme" => {
+            if crate::theme::apply_theme(rest) {
+                crate::theme::save_theme_id(rest);
+                crate::theme::sync_terminal_canvas_hard();
+                chat.notice = Some(format!("theme {}", crate::theme::current_theme_label()));
+            } else {
+                chat.notice = Some(format!("unknown theme {rest} (github, gold, hermes)"));
+            }
+            None
+        }
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));

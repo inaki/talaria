@@ -77,6 +77,7 @@ pub enum ScreenAction {
         truncate_before_row_id: i64,
         confirm_empty_truncate: bool,
     },
+    OpenTheme,
 }
 
 pub enum CurrentScreen {

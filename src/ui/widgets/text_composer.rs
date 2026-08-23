@@ -8,8 +8,10 @@ use std::path::Path;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::paths::{create_private_dir_all, HermesRustPaths};
+use crate::ui::keys::is_newline_key;
 
 const MAX_HISTORY: usize = 200;
+const MAX_VISUAL_LINES: u16 = 6;
 
 #[derive(Debug, Default)]
 pub struct TextComposer {
@@ -136,6 +138,26 @@ impl TextComposer {
         self.cursor_pos += next;
     }
 
+    pub fn insert_newline(&mut self) {
+        self.insert_char('\n');
+    }
+
+    pub fn offset_to_line_col(&self) -> (usize, usize) {
+        offset_to_line_col(&self.draft, self.cursor_pos)
+    }
+
+    pub fn move_line(&mut self, delta: i32) {
+        self.cursor_pos = move_cursor_line(&self.draft, self.cursor_pos, delta);
+    }
+
+    fn on_first_line(&self) -> bool {
+        !self.draft[..self.cursor_pos].contains('\n')
+    }
+
+    fn on_last_line(&self) -> bool {
+        !self.draft[self.cursor_pos..].contains('\n')
+    }
+
     pub fn submit(&mut self) -> Option<String> {
         let text = self.draft.trim().to_string();
         if text.is_empty() {
@@ -181,17 +203,19 @@ impl TextComposer {
         self.cursor_pos = self.draft.len();
     }
 
+    /// Content rows inside the prompt box. Empty / one line → 1; Shift+Enter
+    /// grows this up to `MAX_VISUAL_LINES` (herald / Grok Build behaviour).
     pub fn visual_lines(&self) -> u16 {
         let n = self.draft.split('\n').count().max(1) as u16;
-        n.clamp(3, 8)
+        n.min(MAX_VISUAL_LINES)
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ComposerAction {
+        if is_newline_key(&key) {
+            self.insert_newline();
+            return ComposerAction::None;
+        }
         match key.code {
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.insert_char('\n');
-                ComposerAction::None
-            }
             KeyCode::Enter => {
                 if let Some(text) = self.submit() {
                     self.persist();
@@ -216,12 +240,32 @@ impl TextComposer {
                 self.move_right();
                 ComposerAction::None
             }
+            KeyCode::Home => {
+                let (line, col) = self.offset_to_line_col();
+                self.cursor_pos -= col;
+                let _ = line;
+                ComposerAction::None
+            }
+            KeyCode::End => {
+                let (line, col) = self.offset_to_line_col();
+                let line_text = self.draft.split('\n').nth(line).unwrap_or("");
+                self.cursor_pos += line_text.len().saturating_sub(col);
+                ComposerAction::None
+            }
             KeyCode::Up => {
-                self.history_up();
+                if self.draft.contains('\n') && !self.on_first_line() {
+                    self.move_line(-1);
+                } else {
+                    self.history_up();
+                }
                 ComposerAction::None
             }
             KeyCode::Down => {
-                self.history_down();
+                if self.draft.contains('\n') && !self.on_last_line() {
+                    self.move_line(1);
+                } else {
+                    self.history_down();
+                }
                 ComposerAction::None
             }
             KeyCode::Char(c)
@@ -236,6 +280,34 @@ impl TextComposer {
     }
 }
 
+pub fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut rem = offset;
+    for (i, line) in lines.iter().enumerate() {
+        let len = line.len();
+        if rem <= len || i == lines.len() - 1 {
+            return (i, rem.min(len));
+        }
+        rem -= len + 1;
+    }
+    (0, 0)
+}
+
+pub fn move_cursor_line(text: &str, pos: usize, delta: i32) -> usize {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let (line, col) = offset_to_line_col(text, pos);
+    let target = line as i32 + delta;
+    if target < 0 || target as usize >= lines.len() {
+        return pos;
+    }
+    let target_col = col.min(lines[target as usize].len());
+    lines[..target as usize]
+        .iter()
+        .map(|l| l.len() + 1)
+        .sum::<usize>()
+        + target_col
+}
+
 #[derive(Debug)]
 pub enum ComposerAction {
     None,
@@ -245,6 +317,39 @@ pub enum ComposerAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newline_key_grows_and_up_down_move_between_lines() {
+        use crate::ui::keys::is_newline_key;
+        use crossterm::event::KeyEvent;
+        let shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        assert!(is_newline_key(&shift_enter));
+        let mut c = TextComposer::default();
+        c.insert_str("ab");
+        c.handle_key(shift_enter);
+        assert_eq!(c.draft, "ab\n");
+        assert_eq!(c.visual_lines(), 2);
+        c.insert_str("cd");
+        assert_eq!(offset_to_line_col(&c.draft, c.cursor_pos), (1, 2));
+        c.move_line(-1);
+        assert_eq!(offset_to_line_col(&c.draft, c.cursor_pos), (0, 2));
+        c.move_line(1);
+        assert_eq!(offset_to_line_col(&c.draft, c.cursor_pos), (1, 2));
+    }
+
+    #[test]
+    fn visual_lines_start_at_one_and_grow_with_newlines() {
+        let mut c = TextComposer::default();
+        assert_eq!(c.visual_lines(), 1);
+        c.insert_str("hello");
+        assert_eq!(c.visual_lines(), 1);
+        c.insert_char('\n');
+        assert_eq!(c.visual_lines(), 2);
+        for _ in 0..10 {
+            c.insert_char('\n');
+        }
+        assert_eq!(c.visual_lines(), MAX_VISUAL_LINES);
+    }
 
     #[test]
     fn insert_and_backspace() {

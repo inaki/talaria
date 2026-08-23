@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::theme;
@@ -12,7 +12,8 @@ use super::Chat;
 
 pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     let hints_h = 1;
-    let composer_h = chat.composer.visual_lines().saturating_add(2);
+    // 1 content row + top/bottom border, then grows with Shift+Enter.
+    let composer_h = chat.composer.visual_lines().saturating_add(2).max(3);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -27,7 +28,7 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     draw_transcript(chat, f, chunks[1]);
     draw_composer(chat, f, chunks[2]);
     if chat.slash.is_active() {
-        chat.slash.render(f, chunks[2]);
+        chat.slash.render_above_input(f, chunks[2]);
     }
     f.render_widget(chat.key_hints_impl(), chunks[3]);
 
@@ -193,20 +194,42 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
 fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(theme::accent())
-        .title(" › ");
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::INPUT_BORDER()))
+        .style(
+            Style::default()
+                .bg(theme::BACKGROUND())
+                .fg(theme::INPUT_BORDER()),
+        );
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let text = if chat.slash.is_active() {
-        Paragraph::new(chat.slash.prompt_value()).style(theme::accent())
+    let prefix = "› ";
+    let indent = " ".repeat(prefix.chars().count());
+    let accent = theme::accent().add_modifier(Modifier::BOLD);
+    let body = theme::text();
+
+    let lines = if chat.slash.is_active() {
+        vec![Line::from(vec![
+            Span::styled(prefix, accent),
+            Span::styled(chat.slash.prompt_value(), theme::accent()),
+        ])]
     } else if chat.composer.draft.is_empty() {
-        Paragraph::new(Span::styled("Ask Hermes…  (/ for commands)", theme::dim()))
+        vec![Line::from(vec![
+            Span::styled(prefix, accent),
+            Span::styled(" ", theme::cursor_block_style()),
+            Span::styled("Ask Hermes…  (/ for commands)", theme::dim()),
+        ])]
     } else {
-        Paragraph::new(cursor_line(&chat.composer.draft, chat.composer.cursor_pos))
-            .style(theme::text())
-            .wrap(Wrap { trim: false })
+        composer_lines(
+            &chat.composer.draft,
+            chat.composer.cursor_pos,
+            prefix,
+            &indent,
+            accent,
+            body,
+        )
     };
-    f.render_widget(text, inner);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn draw_quit_modal(f: &mut Frame, area: Rect) {
@@ -232,11 +255,38 @@ fn draw_quit_modal(f: &mut Frame, area: Rect) {
     );
 }
 
-fn cursor_line(draft: &str, cursor: usize) -> String {
-    let cur = if draft.is_char_boundary(cursor) {
-        cursor.min(draft.len())
-    } else {
-        draft.len()
-    };
-    format!("{}▍{}", &draft[..cur], &draft[cur..])
+fn composer_lines(
+    draft: &str,
+    cursor: usize,
+    prefix: &str,
+    indent: &str,
+    accent: Style,
+    body: Style,
+) -> Vec<Line<'static>> {
+    let text_lines: Vec<&str> = draft.split('\n').collect();
+    let (cursor_line, cursor_col) = crate::ui::widgets::offset_to_line_col(draft, cursor);
+    let mut lines = Vec::new();
+    for (li, line) in text_lines.iter().enumerate() {
+        let mut spans = Vec::new();
+        if li == 0 {
+            spans.push(Span::styled(prefix.to_string(), accent));
+        } else {
+            spans.push(Span::raw(indent.to_string()));
+        }
+        if li == cursor_line {
+            let col = cursor_col.min(line.len());
+            let before = line[..col].to_string();
+            let at = line[col..].chars().next();
+            let after_start = col + at.map(|c| c.len_utf8()).unwrap_or(0);
+            let after = line[after_start.min(line.len())..].to_string();
+            spans.push(Span::styled(before, body));
+            let ch = at.map(|c| c.to_string()).unwrap_or_else(|| " ".into());
+            spans.push(Span::styled(ch, theme::cursor_block_style()));
+            spans.push(Span::styled(after, body));
+        } else {
+            spans.push(Span::styled((*line).to_string(), body));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines
 }
