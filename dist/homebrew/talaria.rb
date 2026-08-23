@@ -3,8 +3,8 @@
 class Talaria < Formula
   desc "Native Rust TUI client for Hermes Agent"
   homepage "https://github.com/inaki/talaria"
-  url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.1.tar.gz"
-  sha256 "a4f7726c1a0fa2be638753b8e203af4fe9598f24ac6debddc4d1ee14dc8c8b65"
+  url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.2.tar.gz"
+  sha256 "7ab7aa061f95ce7f65e88113e645bb4f0d791bcd880ba4229e22474631f13867"
   license "MIT"
   head "https://github.com/inaki/talaria.git", branch: "main"
 
