@@ -7,6 +7,9 @@
   <meta name="description" content="Talaria is an unofficial native ratatui TUI for Hermes Agent. Not a Nous Research product. MIT licensed.">
   <meta name="color-scheme" content="dark">
   <link rel="canonical" href="https://inaki.github.io/talaria/">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #1a1a2e;
@@ -14,6 +17,7 @@
       --line: #daa52066;
       --gold: #ffd700;
       --amber: #ffbf00;
+      --bronze: #8b6914;
       --text: #fff8dc;
       --dim: #b8860b;
       --muted: #c4b896;
@@ -21,35 +25,114 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; background: var(--bg); color: var(--text); }
     body {
-      font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      font: 16px/1.5 "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    }
+    .wrap {
       max-width: 52rem;
       margin: 0 auto;
-      padding: 2.5rem 1.25rem 4rem;
+      padding: 0 1.25rem 4rem;
     }
-    header { margin-bottom: 1.75rem; }
+    header.hero {
+      position: relative;
+      overflow: hidden;
+      padding: 3rem 0 2.25rem;
+      margin-bottom: 0.5rem;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(80% 90% at 12% -10%, #ffd70022, transparent 55%),
+        radial-gradient(60% 80% at 90% 0%, #daa52014, transparent 50%),
+        linear-gradient(180deg, #12122a 0%, var(--bg) 100%);
+    }
+    header.hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        #00000018 3px,
+        #00000018 4px
+      );
+      pointer-events: none;
+    }
+    .hero-inner { position: relative; }
     .kicker {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
       color: var(--dim);
-      letter-spacing: 0.08em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      font-size: 0.75rem;
-      margin: 0 0 0.4rem;
+      font-size: 0.72rem;
+      font-weight: 500;
+      margin: 0 0 0.85rem;
+    }
+    .kicker::before {
+      content: "✦";
+      color: var(--gold);
+      letter-spacing: 0;
+      font-size: 0.85rem;
     }
     h1 {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: clamp(2rem, 6vw, 3.25rem);
-      font-weight: 700;
-      color: var(--gold);
-      margin: 0 0 0.4rem;
-      letter-spacing: -0.03em;
+      margin: 0;
+      line-height: 0.78;
     }
-    .lede { color: var(--muted); margin: 0; max-width: 40rem; }
-    .lede strong { color: var(--amber); font-weight: 600; }
+    .wm {
+      display: block;
+      font-family: "Bebas Neue", Impact, "Arial Narrow", sans-serif;
+      font-weight: 400;
+      font-size: clamp(4.2rem, 16vw, 7.4rem);
+      letter-spacing: 0.06em;
+      background: linear-gradient(
+        180deg,
+        #fff3a0 0%,
+        #ffd700 32%,
+        #e6b422 62%,
+        #a67c12 86%,
+        #6b4e0e 100%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      filter:
+        drop-shadow(0 1px 0 #5a420c)
+        drop-shadow(2px 3px 0 #3d2c08)
+        drop-shadow(0 18px 28px #00000066);
+    }
+    .wm-agent {
+      font-size: clamp(2.4rem, 9vw, 4.2rem);
+      letter-spacing: 0.18em;
+      margin-top: 0.12em;
+      opacity: 0.96;
+    }
+    .lede {
+      color: var(--muted);
+      margin: 1.15rem 0 0;
+      max-width: 38rem;
+    }
+    .lede strong { color: var(--amber); font-weight: 500; }
     nav {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem 1.25rem;
-      margin: 1.25rem 0 0;
-      font-size: 0.95rem;
+      gap: 0.55rem;
+      margin: 1.4rem 0 0;
+    }
+    nav a {
+      color: var(--gold);
+      text-decoration: none;
+      font-size: 0.82rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.38rem 0.75rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #ffd7000d;
+    }
+    nav a:hover {
+      color: var(--text);
+      border-color: var(--gold);
+      background: #ffd70022;
     }
     a { color: var(--gold); }
     a:hover { color: var(--text); }
@@ -98,41 +181,48 @@
   </style>
 </head>
 <body>
-  <header>
-    <p class="kicker">Unofficial · MIT · not a Nous Research product</p>
-    <h1>Talaria Agent</h1>
-    <p class="lede">Native <strong>ratatui</strong> host for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
-    <nav>
-      <a href="https://github.com/inaki/talaria">GitHub</a>
-      <a href="https://github.com/inaki/talaria/blob/main/NOTICE.md">Notice</a>
-      <a href="https://github.com/inaki/talaria/blob/main/LICENSE">MIT license</a>
-      <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
-    </nav>
+  <header class="hero">
+    <div class="wrap hero-inner">
+      <p class="kicker">Unofficial TUI host for Hermes Agent</p>
+      <h1>
+        <span class="wm">TALARIA</span>
+        <span class="wm wm-agent">- AGENT</span>
+      </h1>
+      <p class="lede">Native <strong>ratatui</strong> host for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
+      <nav>
+        <a href="https://github.com/inaki/talaria">GitHub</a>
+        <a href="https://github.com/inaki/talaria/blob/main/NOTICE.md">Notice</a>
+        <a href="https://github.com/inaki/talaria/blob/main/LICENSE">MIT license</a>
+        <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
+      </nav>
+    </div>
   </header>
 
-  <figure class="shot">
-    <img
-      src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
-      alt="Talaria Agent splash: TALARIA - AGENT wordmark, caduceus, and Hermes tools panel">
-  </figure>
+  <main class="wrap">
+    <figure class="shot">
+      <img
+        src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
+        alt="Talaria Agent splash: TALARIA - AGENT wordmark, caduceus, and Hermes tools panel">
+    </figure>
 
-  <h2>Install</h2>
-  <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
-  <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
+    <h2>Install</h2>
+    <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
+    <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 brew install inaki/talaria/talaria
 talaria</code></pre>
 
-  <h2>What it is</h2>
-  <ul>
-    <li>A host, not a fork. Speaks the official <code>tui_gateway</code> JSON-RPC.</li>
-    <li>Chrome lives in <code>~/.talaria</code>. Agent config stays in <code>~/.hermes</code>.</li>
-    <li>Independent of Nous Research. See the notice before you present it as theirs.</li>
-  </ul>
+    <h2>What it is</h2>
+    <ul>
+      <li>A host, not a fork. Speaks the official <code>tui_gateway</code> JSON-RPC.</li>
+      <li>Chrome lives in <code>~/.talaria</code>. Agent config stays in <code>~/.hermes</code>.</li>
+      <li>Independent of Nous Research. See the notice before you present it as theirs.</li>
+    </ul>
 
-  <footer>
-    Talaria is independent of Hermes Agent by
-    <a href="https://nousresearch.com">Nous Research</a>.
-    It is not affiliated with, endorsed by, or a product of Nous Research.
-  </footer>
+    <footer>
+      Talaria is independent of Hermes Agent by
+      <a href="https://nousresearch.com">Nous Research</a>.
+      It is not affiliated with, endorsed by, or a product of Nous Research.
+    </footer>
+  </main>
 </body>
 </html>
