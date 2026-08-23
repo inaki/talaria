@@ -1,4 +1,4 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
@@ -11,27 +11,45 @@ use crate::ui::widgets::markdown_to_lines;
 
 use super::Chat;
 
+/// Same 1-cell gutter as the gap between a rounded panel and the terminal edge.
+const EDGE_PAD: u16 = 1;
+
 pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
-    let hints_h = 1;
+    let show_bar = crate::prefs::status_bar();
+    let show_hints = crate::prefs::key_hints();
     // 1 content row + top/bottom border, then grows with Shift+Enter.
     let composer_h = chat.composer.visual_lines().saturating_add(2).max(3);
+    let mut constraints = vec![Constraint::Min(3)];
+    if show_bar {
+        constraints.push(Constraint::Length(EDGE_PAD));
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Length(composer_h));
+    if show_hints {
+        constraints.push(Constraint::Length(1));
+    }
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(composer_h),
-            Constraint::Length(hints_h),
-        ])
+        .constraints(constraints)
         .split(area);
 
-    draw_status(chat, f, chunks[0]);
-    draw_transcript(chat, f, chunks[1]);
-    draw_composer(chat, f, chunks[2]);
-    if chat.slash.is_active() {
-        chat.slash.render_above_input(f, chunks[2]);
+    let mut i = 0;
+    draw_transcript(chat, f, chunks[i]);
+    i += 1;
+    if show_bar {
+        i += 1; // EDGE_PAD above the meter
+        draw_meter(chat, f, chunks[i]);
+        i += 1;
     }
-    f.render_widget(chat.key_hints_impl(), chunks[3]);
+    let composer = chunks[i];
+    i += 1;
+    draw_composer(chat, f, composer);
+    if chat.slash.is_active() {
+        chat.slash.render_above_input(f, composer);
+    }
+    if show_hints {
+        f.render_widget(chat.key_hints_impl(), gutter(chunks[i]));
+    }
 
     super::overlay::draw_overlay(&chat.overlay, f, area);
     if chat.confirm_quit {
@@ -39,33 +57,20 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     }
 }
 
-fn draw_status(chat: &Chat, f: &mut Frame, area: Rect) {
-    let alive = if chat.gateway_alive {
-        "alive"
-    } else {
-        "offline"
-    };
-    let spin = if chat.streaming || chat.thinking {
-        format!("{} ", chat.spinner.glyph())
-    } else {
-        String::new()
-    };
-    let notice = chat.notice.as_deref().unwrap_or("");
-    let line = Line::from(vec![
-        Span::styled(spin, theme::accent()),
-        Span::styled(format!(" {}", chat.model), theme::accent()),
-        Span::styled(format!("  ·  {}", chat.session_id), theme::dim()),
-        Span::styled(
-            format!("  ·  {alive}"),
-            if chat.gateway_alive {
-                Style::default().fg(theme::SUCCESS())
-            } else {
-                theme::error()
-            },
-        ),
-        Span::styled(format!("  {notice}"), theme::dim()),
-    ]);
-    f.render_widget(Paragraph::new(line), area);
+fn gutter(area: Rect) -> Rect {
+    area.inner(Margin {
+        horizontal: EDGE_PAD,
+        vertical: 0,
+    })
+}
+
+fn draw_meter(chat: &Chat, f: &mut Frame, area: Rect) {
+    let area = gutter(area);
+    let meter = chat.meter();
+    f.render_widget(
+        Paragraph::new(super::status::line(&meter, area.width)),
+        area,
+    );
 }
 
 fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
@@ -76,21 +81,29 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     chat.transcript_area = area;
     chat.tool_hits.clear();
     let mut lines: Vec<Line> = Vec::new();
+    for _ in 0..EDGE_PAD {
+        lines.push(Line::from(""));
+    }
     let col_w = area.width.max(12);
     for (i, item) in chat.items.iter().enumerate() {
         let hit_start = lines.len() as u16;
         match item {
             TimelineItem::User { text: t, .. } => {
                 let mut first = true;
+                let indent = " ".repeat(EDGE_PAD as usize);
                 for l in t.split('\n') {
                     if first {
                         lines.push(Line::from(vec![
+                            Span::raw(indent.clone()),
                             Span::styled("● ", theme::user().add_modifier(Modifier::BOLD)),
                             Span::styled(l.to_string(), theme::user()),
                         ]));
                         first = false;
                     } else {
-                        lines.push(Line::from(Span::styled(format!("  {l}"), theme::user())));
+                        lines.push(Line::from(Span::styled(
+                            format!("{indent}  {l}"),
+                            theme::user(),
+                        )));
                     }
                 }
                 lines.push(Line::from(""));
@@ -114,13 +127,12 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     .iter()
                     .map(|l| Line::from(Span::styled((*l).to_string(), theme::dim())))
                     .collect();
-                lines.extend(rounded_panel(
-                    vec![Span::styled(" thinking", theme::dim())],
-                    body,
-                    panel_width(col_w),
-                    *live,
-                    true,
-                ));
+                let mut title = vec![Span::styled(" thinking", theme::dim())];
+                if *live {
+                    title.push(Span::raw(" "));
+                    title.push(chat.spinner.span(theme::accent()));
+                }
+                lines.extend(rounded_panel(title, body, panel_width(col_w), false, true));
                 lines.push(Line::from(""));
             }
             TimelineItem::Tool {

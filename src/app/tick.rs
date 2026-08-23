@@ -13,6 +13,12 @@ pub fn on_tick(app: &mut App) {
     for ev in drained {
         apply(app, ev);
     }
+    let CurrentScreen::Chat(chat) = &mut app.screen;
+    if chat.take_pending_usage() {
+        if let Some(session) = &app.session {
+            session.send(SessionCommand::FetchUsage);
+        }
+    }
     app.screen.as_screen_mut().tick();
 }
 

@@ -8,6 +8,7 @@ pub mod discover;
 pub mod gateway;
 pub mod logging;
 pub mod paths;
+pub mod prefs;
 pub mod protocol;
 pub mod session;
 pub mod shell;

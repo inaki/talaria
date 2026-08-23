@@ -29,6 +29,7 @@ Last updated: 2026-08-23.
 | Bang shell | Yes | `! pwd` / `!ls` runs locally in session cwd; not sent to the model (30s timeout) |
 | Subagents | Yes | Timeline + `/agents` overlay; Enter interrupts; **s** steers (`subagent.steer`) |
 | Usage | Yes | Native `/usage` overlay via `session.usage` |
+| Composer meter | Yes | Strip above the prompt: model, context fill, session / last-turn / idle clocks. `/custom` toggles the meter and the key-hint row (saved in `~/.hermes-rust/custom`) |
 | Image attach | Partial | Path paste + **Ctrl+V** `clipboard.paste` (gateway reads OS clipboard) |
 | Rewind / edit | Yes | `/rewind` lists `session.history` user turns with `row_id`; confirm → `prompt.submit` with `confirm_truncate` + `truncate_before_row_id` (+ `confirm_empty_truncate` on the first turn). Ordinary send stays `{session_id, text}` only |
 | Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |

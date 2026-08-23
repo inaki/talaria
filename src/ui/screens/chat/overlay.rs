@@ -87,6 +87,9 @@ pub enum Overlay {
         selected: usize,
         saved_id: &'static str,
     },
+    Custom {
+        selected: usize,
+    },
     Model(ModelPicker),
     Skills(SkillsHub),
     Plugins(PluginsHub),
@@ -459,6 +462,34 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 None
             }
         }
+        Overlay::Custom { selected } => {
+            if key.code == KeyCode::Esc {
+                overlay.close();
+                return None;
+            }
+            if key.code == KeyCode::Up {
+                *selected = selected.saturating_sub(1);
+                return None;
+            }
+            if key.code == KeyCode::Down {
+                *selected = (*selected + 1).min(1);
+                return None;
+            }
+            if matches!(
+                key.code,
+                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('l') | KeyCode::Char('h')
+            ) {
+                match *selected {
+                    0 => {
+                        crate::prefs::toggle_status_bar();
+                    }
+                    _ => {
+                        crate::prefs::toggle_key_hints();
+                    }
+                }
+            }
+            None
+        }
         Overlay::Theme { selected, saved_id } => {
             if key.code == KeyCode::Esc {
                 let _ = theme::apply_theme(saved_id);
@@ -754,6 +785,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/branch                fork this session"),
                 Line::from("/agents                subagents (Enter kill · s steer)"),
                 Line::from("/usage                 tokens and cost"),
+                Line::from("/custom                toggle status bar and key hints"),
                 Line::from("/trees                 spawn-tree snapshots"),
                 Line::from("/rewind               regenerate from a user turn (row_id)"),
                 Line::from("/model                provider + model picker"),
@@ -962,6 +994,50 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 paint_modal(f, area, " rewind ", lines, 16);
             }
         }
+        Overlay::Custom { selected } => {
+            let prefs = crate::prefs::get();
+            let rows = [
+                (
+                    "status bar",
+                    prefs.status_bar,
+                    "model · context · clocks above the prompt",
+                ),
+                (
+                    "key hints",
+                    prefs.key_hints,
+                    "shortcut row under the prompt",
+                ),
+            ];
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    "Enter / Space toggle   ·   Esc close",
+                    theme::dim(),
+                )),
+                Line::from(""),
+            ];
+            for (i, (label, on, hint)) in rows.iter().enumerate() {
+                let mark = if i == *selected { "▸ " } else { "  " };
+                let state = if *on { "on " } else { "off" };
+                lines.push(Line::from(Span::styled(
+                    format!("{mark}{label:<12}  {state}"),
+                    if i == *selected {
+                        theme::accent().add_modifier(Modifier::BOLD)
+                    } else {
+                        theme::text()
+                    },
+                )));
+                lines.push(Line::from(Span::styled(
+                    format!("    {hint}"),
+                    theme::dim(),
+                )));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "saved to ~/.hermes-rust/custom",
+                theme::dim(),
+            )));
+            paint_modal(f, area, " custom ", lines, 12);
+        }
         Overlay::Theme { selected, saved_id } => {
             let mut lines = vec![
                 Line::from(Span::styled(
@@ -1141,5 +1217,25 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn custom_overlay_navigates_and_closes() {
+        let mut overlay = Overlay::Custom { selected: 0 };
+        let down = KeyEvent::from(KeyCode::Down);
+        assert!(handle_overlay_key(&mut overlay, down).is_none());
+        match overlay {
+            Overlay::Custom { selected } => assert_eq!(selected, 1),
+            other => panic!("{other:?}"),
+        }
+        let up = KeyEvent::from(KeyCode::Up);
+        assert!(handle_overlay_key(&mut overlay, up).is_none());
+        match overlay {
+            Overlay::Custom { selected } => assert_eq!(selected, 0),
+            other => panic!("{other:?}"),
+        }
+        let esc = KeyEvent::from(KeyCode::Esc);
+        assert!(handle_overlay_key(&mut overlay, esc).is_none());
+        assert!(!overlay.is_open());
     }
 }

@@ -41,6 +41,7 @@ pub fn run_tui_with_options(options: RunOptions) -> io::Result<()> {
     let theme_id = crate::theme::resolve_startup_theme(options.theme.as_deref());
     let _ = crate::theme::apply_theme(theme_id);
     crate::theme::sync_terminal_canvas_hard();
+    crate::prefs::load();
     log_line(&format!("theme: {theme_id}"));
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -146,13 +147,21 @@ fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> io::Result<()> {
-    let tick_rate = Duration::from_millis(80);
+    let idle_tick = Duration::from_millis(80);
     let mut last_tick = Instant::now();
 
     loop {
         if app.should_quit {
             break;
         }
+        let tick_rate = {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &app.screen;
+            if chat.streaming || chat.thinking {
+                Duration::from_millis(chat.spinner.interval_ms())
+            } else {
+                idle_tick
+            }
+        };
 
         while event::poll(Duration::ZERO)? {
             match event::read()? {

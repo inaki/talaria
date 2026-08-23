@@ -35,6 +35,10 @@ impl HermesRustPaths {
     pub fn theme_file(&self) -> PathBuf {
         self.root.join("theme")
     }
+
+    pub fn custom_file(&self) -> PathBuf {
+        self.root.join("custom")
+    }
 }
 
 impl Default for HermesRustPaths {
@@ -88,6 +92,7 @@ mod tests {
             let p = HermesRustPaths::from_env();
             assert!(p.root.ends_with(".hermes-rust"));
             assert!(p.log_file().ends_with("logs/hermes-rust.log"));
+            assert!(p.custom_file().ends_with("custom"));
         }
     }
 }

@@ -1,11 +1,14 @@
 //! Chat screen. State lives here so child modules can touch private fields.
 
+use std::time::Instant;
+
 use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
 use crate::session::{
     rewind_turns_from_messages, SessionEvent, SubagentKind, SubagentRow, TranscriptMessage,
+    UsageSnapshot,
 };
 use crate::ui::screens::{Screen, ScreenAction};
 use crate::ui::widgets::{KeyHints, SlashItem, SlashMenu, Spinner, TextComposer};
@@ -15,6 +18,7 @@ mod input;
 mod model_picker;
 mod overlay;
 mod render;
+mod status;
 mod tick;
 
 pub(crate) use overlay::Overlay;
@@ -84,6 +88,13 @@ pub struct Chat {
     pub(crate) transcript_area: ratatui::layout::Rect,
     /// (start_row, len, item_index) for clickable tool cards in the transcript.
     pub(crate) tool_hits: Vec<(u16, u16, usize)>,
+    pub(crate) usage: UsageSnapshot,
+    pub(crate) session_started: Option<Instant>,
+    pub(crate) turn_started: Option<Instant>,
+    pub(crate) last_turn_ended: Option<Instant>,
+    pub(crate) last_turn_secs: Option<u64>,
+    pub(crate) session_title: String,
+    pub(crate) pending_usage: bool,
 }
 
 impl Chat {
@@ -100,7 +111,13 @@ impl Chat {
             confirm_quit: false,
             notice: Some("starting…".into()),
             overlay: Overlay::None,
-            slash: SlashMenu::default(),
+            slash: {
+                let mut items = Vec::new();
+                merge_host_slash_commands(&mut items);
+                let mut menu = SlashMenu::default();
+                menu.set_commands(items);
+                menu
+            },
             pending_send: None,
             follow: true,
             thinking: false,
@@ -117,6 +134,13 @@ impl Chat {
             selected_tool: None,
             transcript_area: ratatui::layout::Rect::default(),
             tool_hits: Vec::new(),
+            usage: UsageSnapshot::default(),
+            session_started: None,
+            turn_started: None,
+            last_turn_ended: None,
+            last_turn_secs: None,
+            session_title: String::new(),
+            pending_usage: false,
         }
     }
 
@@ -149,6 +173,12 @@ impl Chat {
                 if let Some(info) = info {
                     self.apply_session_info(info);
                 }
+                self.session_started = Some(Instant::now());
+                self.turn_started = None;
+                self.last_turn_ended = None;
+                self.last_turn_secs = None;
+                self.usage = UsageSnapshot::default();
+                self.request_usage();
             }
             SessionEvent::SessionInfo {
                 info, session_id, ..
@@ -162,6 +192,7 @@ impl Chat {
             SessionEvent::MessageDelta { text, .. } => {
                 self.streaming = true;
                 self.thinking = false;
+                self.mark_turn_started();
                 self.seal_thinking();
                 self.notice = None;
                 if let Some(i) = self.last_streaming_assistant() {
@@ -184,6 +215,8 @@ impl Chat {
             SessionEvent::MessageComplete { text, .. } => {
                 self.streaming = false;
                 self.thinking = false;
+                self.finish_turn();
+                self.request_usage();
                 self.seal_thinking();
                 if matches!(self.overlay, Overlay::Clarify { .. }) {
                     self.overlay.close();
@@ -218,6 +251,7 @@ impl Chat {
                 args,
             } => {
                 self.streaming = true;
+                self.mark_turn_started();
                 let name = name.unwrap_or_else(|| "tool".into());
                 let args = crate::logging::sanitize_tool_text(&name, args.as_deref().unwrap_or(""));
                 self.items.push(TimelineItem::Tool {
@@ -258,6 +292,7 @@ impl Chat {
                 error,
             } => {
                 self.streaming = false;
+                self.request_usage();
                 if matches!(self.overlay, Overlay::Clarify { .. }) {
                     self.overlay.close();
                 }
@@ -397,6 +432,13 @@ impl Chat {
                 }
             }
             SessionEvent::ActiveList { sessions } => {
+                if let Some(cur) = sessions.iter().find(|s| s.current) {
+                    if let Some(t) = &cur.title {
+                        if !t.is_empty() {
+                            self.session_title = t.clone();
+                        }
+                    }
+                }
                 if let Overlay::Sessions {
                     live,
                     loading,
@@ -464,6 +506,7 @@ impl Chat {
             SessionEvent::Error { message } => {
                 self.streaming = false;
                 self.thinking = false;
+                self.finish_turn();
                 self.notice = Some(message.clone());
                 self.items.push(TimelineItem::Error(message));
             }
@@ -484,6 +527,7 @@ impl Chat {
             SessionEvent::Thinking { text } => {
                 self.thinking = true;
                 self.streaming = true;
+                self.mark_turn_started();
                 if !text.is_empty() {
                     self.notice = Some(truncate_notice(&text));
                 }
@@ -617,6 +661,10 @@ impl Chat {
                 self.scroll_to_bottom();
             }
             SessionEvent::Usage(snapshot) => {
+                if !snapshot.model.is_empty() {
+                    self.model = snapshot.model.clone();
+                }
+                self.usage = snapshot.clone();
                 if let Overlay::Usage {
                     loading,
                     snapshot: slot,
@@ -849,6 +897,15 @@ impl Chat {
         if let Some(m) = info.get("model").and_then(|v| v.as_str()) {
             self.model = m.to_string();
         }
+        if let Some(t) = info
+            .get("title")
+            .or_else(|| info.get("session_title"))
+            .and_then(|v| v.as_str())
+        {
+            if !t.is_empty() {
+                self.session_title = t.to_string();
+            }
+        }
         if let Some(c) = info.get("cwd").and_then(|v| v.as_str()) {
             self.cwd = c.to_string();
         }
@@ -869,6 +926,7 @@ impl Chat {
     }
 
     pub fn push_user(&mut self, text: String) {
+        self.mark_turn_started();
         self.items.push(TimelineItem::User { text, row_id: None });
         self.scroll_to_bottom();
     }
@@ -1005,6 +1063,13 @@ impl Chat {
         self.follow = true;
         self.scroll = 0;
         self.notice = Some("new session…".into());
+        self.usage = UsageSnapshot::default();
+        self.session_started = None;
+        self.turn_started = None;
+        self.last_turn_ended = None;
+        self.last_turn_secs = None;
+        self.session_title.clear();
+        self.pending_usage = false;
     }
 
     pub fn open_spawn_trees(&mut self) {
@@ -1108,6 +1173,71 @@ impl Chat {
         self.pending_send.take()
     }
 
+    pub fn take_pending_usage(&mut self) -> bool {
+        std::mem::take(&mut self.pending_usage)
+    }
+
+    fn request_usage(&mut self) {
+        self.pending_usage = true;
+    }
+
+    fn mark_turn_started(&mut self) {
+        if self.turn_started.is_none() {
+            self.turn_started = Some(Instant::now());
+        }
+        if self.session_started.is_none() {
+            self.session_started = Some(Instant::now());
+        }
+    }
+
+    fn finish_turn(&mut self) {
+        if let Some(start) = self.turn_started.take() {
+            self.last_turn_secs = Some(start.elapsed().as_secs());
+        }
+        self.last_turn_ended = Some(Instant::now());
+    }
+
+    pub(super) fn meter(&self) -> status::Meter {
+        let now = Instant::now();
+        let session = self
+            .session_started
+            .map(|t| now.saturating_duration_since(t))
+            .unwrap_or_default();
+        let live = self.streaming || self.thinking;
+        let (turn, turn_live) = if live {
+            (
+                self.turn_started.map(|t| now.saturating_duration_since(t)),
+                true,
+            )
+        } else {
+            (
+                self.last_turn_secs.map(std::time::Duration::from_secs),
+                false,
+            )
+        };
+        let idle = if !live {
+            self.last_turn_ended
+                .map(|t| now.saturating_duration_since(t))
+        } else {
+            None
+        };
+        let right = if self.session_title.is_empty() {
+            status::short_cwd(&self.cwd)
+        } else {
+            self.session_title.clone()
+        };
+        status::Meter {
+            model: self.model.clone(),
+            usage: self.usage.clone(),
+            session,
+            turn,
+            turn_live,
+            idle,
+            right,
+            spinner: live.then(|| self.spinner.glyph()),
+        }
+    }
+
     pub fn open_model(&mut self) {
         self.slash.close();
         self.overlay = Overlay::Model(model_picker::ModelPicker::loading());
@@ -1141,6 +1271,11 @@ impl Chat {
     pub fn open_help(&mut self) {
         self.slash.close();
         self.overlay = Overlay::Help;
+    }
+
+    pub fn open_custom(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::Custom { selected: 0 };
     }
 
     pub fn open_agents(&mut self) {
@@ -1212,6 +1347,7 @@ fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
         ("rewind", "regenerate from a past user turn"),
         ("trees", "saved spawn trees"),
         ("usage", "token / cost for this session"),
+        ("custom", "toggle status bar and key hints"),
         ("help", "keyboard help"),
     ] {
         if !items.iter().any(|c| c.name == name) {
@@ -1331,6 +1467,25 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+        assert!(chat.pending_usage);
+        assert!(chat.last_turn_secs.is_some());
+    }
+
+    #[test]
+    fn usage_event_fills_meter_without_overlay() {
+        let mut chat = Chat::new();
+        chat.apply_event(SessionEvent::Usage(UsageSnapshot {
+            context_used: 25700,
+            context_max: 1_000_000,
+            context_percent: 2,
+            model: "stealth/ox-alpha".into(),
+            ..Default::default()
+        }));
+        assert_eq!(chat.model, "stealth/ox-alpha");
+        assert_eq!(chat.usage.context_used, 25700);
+        assert!(!chat.take_pending_usage());
+        let meter = chat.meter();
+        assert_eq!(meter.usage.context_percent, 2);
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
 
     if key.code == KeyCode::Esc {
         if chat.streaming || chat.thinking {
+            chat.finish_turn();
             return Some(ScreenAction::Interrupt);
         }
         return None;
@@ -198,6 +199,10 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         "plugins" if rest.is_empty() => Some(ScreenAction::OpenPlugins),
         "mcp" => Some(ScreenAction::OpenMcp),
         "usage" => Some(ScreenAction::OpenUsage),
+        "custom" => {
+            chat.open_custom();
+            None
+        }
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));
