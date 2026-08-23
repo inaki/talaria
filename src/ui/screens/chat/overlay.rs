@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::session::{ActiveSession, SavedSession, SubagentRow};
+use crate::session::{ActiveSession, SavedSession, SpawnTreeEntry, SubagentRow};
 use crate::theme;
 use crate::ui::keys::{is_ctrl_c, typed_char};
 use crate::ui::screens::ScreenAction;
@@ -58,6 +58,11 @@ pub enum Overlay {
     Help,
     Agents {
         agents: Vec<SubagentRow>,
+        selected: usize,
+        loading: bool,
+    },
+    SpawnTrees {
+        entries: Vec<SpawnTreeEntry>,
         selected: usize,
         loading: bool,
     },
@@ -311,6 +316,32 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
             }
             None
         }
+        Overlay::SpawnTrees {
+            entries,
+            selected,
+            loading,
+        } => {
+            if key.code == KeyCode::Esc {
+                overlay.close();
+                return None;
+            }
+            if key.code == KeyCode::Up {
+                *selected = selected.saturating_sub(1);
+                return None;
+            }
+            if key.code == KeyCode::Down && !entries.is_empty() {
+                *selected = (*selected + 1).min(entries.len() - 1);
+                return None;
+            }
+            if key.code == KeyCode::Enter && !*loading {
+                if let Some(e) = entries.get(*selected) {
+                    let path = e.path.clone();
+                    overlay.close();
+                    return Some(ScreenAction::LoadSpawnTree { path });
+                }
+            }
+            None
+        }
     }
 }
 
@@ -540,7 +571,10 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/sessions  /resume     saved vs live sessions"),
                 Line::from("/branch                fork this session"),
                 Line::from("/agents                live subagents (Enter interrupts)"),
+                Line::from("/trees                 spawn-tree snapshots"),
                 Line::from("/clear  /quit"),
+                Line::from("Ctrl+O           expand last tool card"),
+                Line::from("Ctrl+V           paste clipboard image (gateway)"),
                 Line::from(""),
                 Line::from(Span::styled(
                     "Paste a path ending in .png/.jpg/.webp to attach.",
@@ -580,6 +614,34 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 )));
             }
             paint_modal(f, area, " agents ", lines, 14);
+        }
+        Overlay::SpawnTrees {
+            entries,
+            selected,
+            loading,
+        } => {
+            let mut lines = vec![
+                Line::from(Span::styled("Enter loads the selected tree", theme::dim())),
+                Line::from(""),
+            ];
+            if *loading {
+                lines.push(Line::from(Span::styled("loading…", theme::dim())));
+            }
+            if entries.is_empty() && !*loading {
+                lines.push(Line::from(Span::styled("no spawn trees saved", theme::dim())));
+            }
+            for (i, e) in entries.iter().enumerate() {
+                let mark = if i == *selected { "▸ " } else { "  " };
+                lines.push(Line::from(Span::styled(
+                    format!("{mark}{}  ({} nodes)", e.label, e.count),
+                    if i == *selected {
+                        theme::accent()
+                    } else {
+                        theme::text()
+                    },
+                )));
+            }
+            paint_modal(f, area, " spawn trees ", lines, 14);
         }
     }
 }

@@ -30,6 +30,11 @@ pub enum TimelineItem {
         result: String,
         error: Option<String>,
         done: bool,
+        expanded: bool,
+    },
+    Thinking {
+        text: String,
+        live: bool,
     },
     Status(String),
     Error(String),
@@ -106,6 +111,7 @@ impl Chat {
             SessionEvent::MessageDelta { text, .. } => {
                 self.streaming = true;
                 self.thinking = false;
+                self.seal_thinking();
                 self.notice = None;
                 match self.items.last_mut() {
                     Some(TimelineItem::Assistant {
@@ -124,6 +130,7 @@ impl Chat {
             SessionEvent::MessageComplete { text, .. } => {
                 self.streaming = false;
                 self.thinking = false;
+                self.seal_thinking();
                 if matches!(self.overlay, Overlay::Clarify { .. }) {
                     self.overlay.close();
                 }
@@ -166,6 +173,7 @@ impl Chat {
                     result: String::new(),
                     error: None,
                     done: false,
+                    expanded: false,
                 });
                 self.scroll_to_bottom();
             }
@@ -383,6 +391,7 @@ impl Chat {
                             result: crate::logging::sanitize_tool_text("tool", &m.text),
                             error: None,
                             done: true,
+                            expanded: false,
                         }),
                         _ => self.items.push(TimelineItem::Status(m.text)),
                     }
@@ -419,6 +428,27 @@ impl Chat {
                 self.streaming = true;
                 if !text.is_empty() {
                     self.notice = Some(truncate_notice(&text));
+                }
+                match self.items.last_mut() {
+                    Some(TimelineItem::Thinking { text: buf, live }) if *live => {
+                        buf.push_str(&text);
+                    }
+                    _ => self.items.push(TimelineItem::Thinking {
+                        text,
+                        live: true,
+                    }),
+                }
+                self.scroll_to_bottom();
+            }
+            SessionEvent::SpawnTrees { entries } => {
+                if let Overlay::SpawnTrees {
+                    entries: list,
+                    loading,
+                    ..
+                } = &mut self.overlay
+                {
+                    *list = entries;
+                    *loading = false;
                 }
             }
             SessionEvent::Subagent {
@@ -484,6 +514,33 @@ impl Chat {
     pub fn push_user(&mut self, text: String) {
         self.items.push(TimelineItem::User(text));
         self.scroll_to_bottom();
+    }
+
+    fn seal_thinking(&mut self) {
+        if let Some(TimelineItem::Thinking { live, .. }) = self.items.last_mut() {
+            *live = false;
+        }
+    }
+
+    pub fn toggle_last_tool(&mut self) {
+        if let Some(i) = self
+            .items
+            .iter()
+            .rposition(|it| matches!(it, TimelineItem::Tool { .. }))
+        {
+            if let TimelineItem::Tool { expanded, .. } = &mut self.items[i] {
+                *expanded = !*expanded;
+            }
+        }
+    }
+
+    pub fn open_spawn_trees(&mut self) {
+        self.slash.close();
+        self.overlay = Overlay::SpawnTrees {
+            entries: Vec::new(),
+            selected: 0,
+            loading: true,
+        };
     }
 
     fn tool_index(&self, id: Option<&str>, name: Option<&str>) -> Option<usize> {

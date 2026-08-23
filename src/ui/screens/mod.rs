@@ -66,6 +66,11 @@ pub enum ScreenAction {
     AttachImage {
         path: String,
     },
+    ClipboardPaste,
+    OpenSpawnTrees,
+    LoadSpawnTree {
+        path: String,
+    },
 }
 
 pub enum CurrentScreen {

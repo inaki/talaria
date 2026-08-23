@@ -69,6 +69,11 @@ pub enum SessionCommand {
     AttachImage {
         path: String,
     },
+    ClipboardPaste,
+    ListSpawnTrees,
+    LoadSpawnTree {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +191,16 @@ pub enum SessionEvent {
     Delegation {
         agents: Vec<SubagentRow>,
     },
+    SpawnTrees {
+        entries: Vec<SpawnTreeEntry>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SpawnTreeEntry {
+    pub path: String,
+    pub label: String,
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -560,6 +575,46 @@ async fn handle_live_cmd(
                 .and_then(|v| v.as_str())
                 .unwrap_or("image attached");
             let _ = ev_tx.send(SessionEvent::Status(notice.to_string())).await;
+            Ok(())
+        }
+        SessionCommand::ClipboardPaste => {
+            let Some(sid) = session_id.as_deref() else {
+                return Err(GatewayError::Protocol("no session_id yet".into()));
+            };
+            let result = client
+                .request("clipboard.paste", json!({ "session_id": sid }))
+                .await?;
+            let attached = result.get("attached").and_then(|v| v.as_bool()).unwrap_or(false);
+            let msg = result
+                .get("message")
+                .or_else(|| result.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(if attached {
+                    "clipboard image attached"
+                } else {
+                    "no image on clipboard"
+                });
+            let _ = ev_tx.send(SessionEvent::Status(msg.to_string())).await;
+            Ok(())
+        }
+        SessionCommand::ListSpawnTrees => {
+            let result = client.request("spawn_tree.list", json!({})).await?;
+            let _ = ev_tx.send(parse_spawn_trees(&result)).await;
+            Ok(())
+        }
+        SessionCommand::LoadSpawnTree { path } => {
+            let result = client
+                .request("spawn_tree.load", json!({ "path": path }))
+                .await?;
+            let _ = ev_tx
+                .send(SessionEvent::Status(format!(
+                    "loaded spawn tree {}",
+                    result
+                        .get("label")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&path)
+                )))
+                .await;
             Ok(())
         }
     }
@@ -995,6 +1050,30 @@ fn parse_transcript_messages(result: &Value) -> Vec<TranscriptMessage> {
         .unwrap_or_default()
 }
 
+fn parse_spawn_trees(result: &Value) -> SessionEvent {
+    let entries = result
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let path = e.get("path").and_then(|v| v.as_str())?.to_string();
+                    Some(SpawnTreeEntry {
+                        path: path.clone(),
+                        label: e
+                            .get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&path)
+                            .to_string(),
+                        count: e.get("count").and_then(|v| v.as_u64()).unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    SessionEvent::SpawnTrees { entries }
+}
+
 fn parse_delegation(result: &Value) -> SessionEvent {
     let agents = result
         .get("active")
@@ -1277,6 +1356,27 @@ async fn mock_loop(
                     .send(SessionEvent::Status(format!("attached {path}")))
                     .await;
             }
+            SessionCommand::ClipboardPaste => {
+                let _ = ev_tx
+                    .send(SessionEvent::Status("clipboard paste (mock)".into()))
+                    .await;
+            }
+            SessionCommand::ListSpawnTrees => {
+                let _ = ev_tx
+                    .send(SessionEvent::SpawnTrees {
+                        entries: vec![SpawnTreeEntry {
+                            path: "mock-tree.json".into(),
+                            label: "mock run".into(),
+                            count: 2,
+                        }],
+                    })
+                    .await;
+            }
+            SessionCommand::LoadSpawnTree { path } => {
+                let _ = ev_tx
+                    .send(SessionEvent::Status(format!("loaded {path} (mock)")))
+                    .await;
+            }
             SessionCommand::Shutdown | SessionCommand::Close => break,
             _ => {}
         }
@@ -1317,6 +1417,10 @@ fn mock_catalog() -> SessionEvent {
             SlashCommand {
                 name: "help".into(),
                 help: "keyboard help".into(),
+            },
+            SlashCommand {
+                name: "trees".into(),
+                help: "saved spawn trees".into(),
             },
         ],
         warning: None,

@@ -97,6 +97,16 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                 }
                 lines.push(Line::from(""));
             }
+            TimelineItem::Thinking { text, live } => {
+                let label = if *live { "thinking ▍" } else { "thinking" };
+                lines.push(Line::from(Span::styled(label, theme::dim())));
+                let body: Vec<&str> = text.split('\n').collect();
+                let start = body.len().saturating_sub(8);
+                for l in &body[start..] {
+                    lines.push(Line::from(Span::styled(format!("  {l}"), theme::dim())));
+                }
+                lines.push(Line::from(""));
+            }
             TimelineItem::Tool {
                 name,
                 args,
@@ -104,31 +114,52 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                 result,
                 error,
                 done,
+                expanded,
                 ..
             } => {
-                let mark = if *done { "└" } else { "│" };
-                lines.push(Line::from(Span::styled(
-                    format!("┌ tool  {name}"),
-                    theme::tool(),
-                )));
-                if !args.is_empty() {
-                    lines.push(Line::from(Span::styled(format!("│ {args}"), theme::dim())));
-                }
-                if !preview.is_empty() && result.is_empty() {
+                let state = if *done { "done" } else { "running" };
+                if !*expanded {
+                    let hint = if result.is_empty() {
+                        preview.clone()
+                    } else {
+                        result.lines().next().unwrap_or("").to_string()
+                    };
                     lines.push(Line::from(Span::styled(
-                        format!("│ {preview}"),
+                        format!("▸ tool  {name}  [{state}]  {hint}"),
+                        theme::tool(),
+                    )));
+                    lines.push(Line::from(Span::styled(
+                        "  Ctrl+O expand",
                         theme::dim(),
                     )));
-                }
-                if !result.is_empty() {
-                    for l in result.split('\n').take(8) {
-                        lines.push(Line::from(Span::styled(format!("│ {l}"), theme::text())));
+                } else {
+                    let mark = if *done { "└" } else { "│" };
+                    lines.push(Line::from(Span::styled(
+                        format!("┌ tool  {name}  [{state}]"),
+                        theme::tool(),
+                    )));
+                    if !args.is_empty() {
+                        lines.push(Line::from(Span::styled(format!("│ {args}"), theme::dim())));
                     }
+                    if !preview.is_empty() && result.is_empty() {
+                        lines.push(Line::from(Span::styled(
+                            format!("│ {preview}"),
+                            theme::dim(),
+                        )));
+                    }
+                    if !result.is_empty() {
+                        for l in result.split('\n').take(12) {
+                            lines.push(Line::from(Span::styled(format!("│ {l}"), theme::text())));
+                        }
+                    }
+                    if let Some(err) = error {
+                        lines.push(Line::from(Span::styled(format!("│ {err}"), theme::error())));
+                    }
+                    lines.push(Line::from(Span::styled(
+                        format!("{mark}  Ctrl+O collapse"),
+                        theme::tool(),
+                    )));
                 }
-                if let Some(err) = error {
-                    lines.push(Line::from(Span::styled(format!("│ {err}"), theme::error())));
-                }
-                lines.push(Line::from(Span::styled(format!("{mark}"), theme::tool())));
                 lines.push(Line::from(""));
             }
             TimelineItem::Status(s) => {

@@ -8,6 +8,7 @@ Living documentation for the native Rust + ratatui Hermes TUI host.
 |-----|---------|
 | **[PARITY.md](./PARITY.md)** | **Status SSOT.** What we cover vs `hermes --tui`. |
 | [PLAN.md](./PLAN.md) | Architecture, protocol notes, crate layout, PR history |
+| [PARITY-PLAN.md](./PARITY-PLAN.md) | Remaining tracks vs Ink TUI |
 | [RUNNING.md](./RUNNING.md) | How to run mock / live |
 
 **Never create `MIGRATION.md`.** This is a greenfield host, not a port of Ink TSX.

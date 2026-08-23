@@ -16,17 +16,17 @@ Last updated: 2026-08-22.
 | Markdown in completed assistant turns | Yes | pulldown-cmark; streaming stays plain text |
 | Theme | Partial | Default dark palette; `gateway.ready` `payload.skin` overlay when hex colors are present |
 | Composer history | Yes | `~/.hermes-rust/history` (0600, last 200), not `~/.hermes` |
-| Thinking spinner | Partial | `thinking.delta` / `reasoning.delta` → status + spinner |
-| Tools | Partial | Card with args/preview/result; secrets redacted; no verbose accordion |
+| Thinking spinner | Yes | Live dim transcript block + status; sealed on first `message.delta` |
+| Tools | Partial | Collapsed one-liner; **Ctrl+O** expands args/result; secrets redacted |
 | Approvals / clarify / sudo / secret | Yes | Overlays; expire only sudo/secret by `request_id` |
 | Slash catalog | Yes | `commands.catalog` + `command.dispatch` |
 | Saved / live sessions | Yes | `session.list`+`resume` vs `active_list`+`activate` |
 | Session branch | Yes | `/branch` → `session.branch` |
 | Steer mid-turn | Yes | Enter while streaming → `session.steer` |
 | Subagents | Partial | Timeline + `/agents` overlay; interrupt selected child |
-| Image attach | Partial | Paste a filesystem path (`image.attach`); no clipboard bytes |
-| Rewind / edit | No | Safety rule in PLAN: ordinary submit never truncates |
-| Spawn-tree dashboard | No | |
+| Image attach | Partial | Path paste + **Ctrl+V** `clipboard.paste` (gateway reads OS clipboard) |
+| Rewind / edit | No | Track C: needs `truncate_before_row_id` from resume |
+| Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |
 | WebSocket attach / sidecar | No | Stdio only |
 | Packaging as `hermes` | No | Binary is `hermes-rust` |
 

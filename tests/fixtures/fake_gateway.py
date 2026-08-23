@@ -236,6 +236,38 @@ def main() -> None:
                     },
                 }
             )
+        elif method == "clipboard.paste":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "result": {"attached": False, "message": "no image (fake)"},
+                }
+            )
+        elif method == "spawn_tree.list":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "result": {
+                        "entries": [
+                            {
+                                "path": "fake-tree.json",
+                                "label": "fake tree",
+                                "count": 1,
+                            }
+                        ]
+                    },
+                }
+            )
+        elif method == "spawn_tree.load":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rid,
+                    "result": {"label": params.get("path"), "session_id": "sess-fake"},
+                }
+            )
         elif method == "image.attach":
             emit(
                 {

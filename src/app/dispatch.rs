@@ -101,5 +101,22 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
                 session.send(SessionCommand::AttachImage { path });
             }
         }
+        ScreenAction::ClipboardPaste => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::ClipboardPaste);
+            }
+        }
+        ScreenAction::OpenSpawnTrees => {
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
+            chat.open_spawn_trees();
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::ListSpawnTrees);
+            }
+        }
+        ScreenAction::LoadSpawnTree { path } => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::LoadSpawnTree { path });
+            }
+        }
     }
 }

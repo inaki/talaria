@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::ui::keys::{is_ctrl_c, typed_char};
+use crate::ui::keys::{is_ctrl_c, is_ctrl_o, is_ctrl_v, typed_char};
 use crate::ui::screens::chat::overlay;
 use crate::ui::screens::ScreenAction;
 use crate::ui::widgets::ComposerAction;
@@ -23,6 +23,15 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
     if is_ctrl_c(&key) {
         chat.confirm_quit = true;
         return None;
+    }
+
+    if is_ctrl_o(&key) && !chat.overlay.is_open() {
+        chat.toggle_last_tool();
+        return None;
+    }
+
+    if is_ctrl_v(&key) && !chat.overlay.is_open() && !chat.slash.is_active() {
+        return Some(ScreenAction::ClipboardPaste);
     }
 
     if chat.overlay.is_open() {
@@ -145,6 +154,7 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
             },
         }),
         "agents" => Some(ScreenAction::OpenAgents),
+        "trees" => Some(ScreenAction::OpenSpawnTrees),
         _ => {
             chat.items
                 .push(super::TimelineItem::Status(format!("/{name}")));
