@@ -68,6 +68,10 @@ fn draw_status(chat: &Chat, f: &mut Frame, area: Rect) {
 }
 
 fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
+    if chat.items.is_empty() && !chat.streaming {
+        draw_splash(chat, f, area);
+        return;
+    }
     let mut lines: Vec<Line> = Vec::new();
     for item in &chat.items {
         match item {
@@ -189,6 +193,172 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     }
     let paragraph = paragraph.scroll((chat.scroll, 0));
     f.render_widget(paragraph, area);
+}
+
+fn draw_splash(chat: &Chat, f: &mut Frame, area: Rect) {
+    let logo = crate::ui::widgets::logo_lines();
+    let logo_w = logo.iter().map(|l| l.width() as u16).max().unwrap_or(0);
+    let tag = crate::ui::widgets::tagline();
+    let mut logo_block: Vec<Line> = logo;
+    logo_block.push(Line::from(Span::styled(format!("✦ {tag}"), theme::dim())));
+    logo_block.push(Line::from(""));
+
+    let logo_h = logo_block.len() as u16;
+    let (banner_area, panel_area) = if area.width + 2 >= logo_w && area.height > logo_h + 10 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(logo_h), Constraint::Min(8)])
+            .split(area);
+        f.render_widget(
+            Paragraph::new(logo_block).wrap(Wrap { trim: false }),
+            chunks[0],
+        );
+        (chunks[0], chunks[1])
+    } else {
+        (Rect::default(), area)
+    };
+    let _ = banner_area;
+
+    let caduceus = crate::ui::widgets::caduceus_lines();
+    let cad_w = crate::ui::widgets::caduceus_width().saturating_add(4);
+    let wide = panel_area.width >= 90 && cad_w + 40 < panel_area.width;
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::INPUT_BORDER()))
+        .style(Style::default().bg(theme::BACKGROUND()));
+    let inner = block.inner(panel_area);
+    f.render_widget(block, panel_area);
+
+    if wide {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(cad_w), Constraint::Min(40)])
+            .split(inner);
+        draw_hero_column(chat, f, cols[0], &caduceus);
+        draw_info_column(chat, f, cols[1], true);
+    } else {
+        draw_info_column(chat, f, inner, false);
+    }
+}
+
+fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'static>]) {
+    let mut lines = caduceus.to_vec();
+    lines.push(Line::from(""));
+    let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
+    lines.push(Line::from(vec![
+        Span::styled(model.to_string(), theme::tool()),
+        Span::styled(" · Nous Research", theme::dim()),
+    ]));
+    lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
+    let sid = if chat.stored_session_id.is_empty() {
+        chat.session_id.clone()
+    } else {
+        chat.stored_session_id.clone()
+    };
+    lines.push(Line::from(vec![
+        Span::styled("Session: ", theme::user()),
+        Span::styled(sid, theme::dim()),
+    ]));
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
+    let mut lines: Vec<Line> = Vec::new();
+    if wide {
+        let mut title = String::from("Hermes Agent");
+        if !chat.version.is_empty() {
+            title.push_str(&format!(" v{}", chat.version));
+        }
+        if !chat.release_date.is_empty() {
+            title.push_str(&format!(" ({})", chat.release_date));
+        }
+        lines.push(Line::from(Span::styled(
+            title,
+            theme::accent().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+    } else {
+        let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
+        lines.push(Line::from(vec![
+            Span::styled(model.to_string(), theme::tool()),
+            Span::styled(" · Nous Research", theme::dim()),
+        ]));
+        lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "Available Tools",
+        theme::tool().add_modifier(Modifier::BOLD),
+    )));
+    if chat.tools.is_empty() {
+        lines.push(Line::from(Span::styled(
+            if chat.gateway_alive {
+                "  scanning tools…"
+            } else {
+                "  (loading)"
+            },
+            theme::dim(),
+        )));
+    } else {
+        append_grouped(&mut lines, &chat.tools, 8);
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Available Skills",
+        theme::tool().add_modifier(Modifier::BOLD),
+    )));
+    if chat.skills.is_empty() {
+        lines.push(Line::from(Span::styled("  (none yet)", theme::dim())));
+    } else {
+        append_grouped(&mut lines, &chat.skills, 8);
+    }
+    lines.push(Line::from(""));
+    let n_tools: usize = chat.tools.iter().map(|(_, v)| v.len()).sum();
+    let n_skills: usize = chat.skills.iter().map(|(_, v)| v.len()).sum();
+    lines.push(Line::from(vec![
+        Span::styled(format!("{n_tools} tools"), theme::text()),
+        Span::styled(" · ", theme::dim()),
+        Span::styled(format!("{n_skills} skills"), theme::text()),
+        Span::styled(" · /help for commands", theme::dim()),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Welcome to Hermes Agent! Type your message or /help for commands.",
+        theme::dim(),
+    )));
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn append_grouped(lines: &mut Vec<Line>, groups: &[(String, Vec<String>)], max: usize) {
+    for (name, members) in groups.iter().take(max) {
+        let body = if members.len() > 4 {
+            format!(
+                "{}, +{} more",
+                members
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                members.len() - 3
+            )
+        } else {
+            members.join(", ")
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {name}: "), theme::user()),
+            Span::styled(body, theme::text()),
+        ]));
+    }
+    if groups.len() > max {
+        lines.push(Line::from(Span::styled(
+            format!("  (and {} more…)", groups.len() - max),
+            theme::dim(),
+        )));
+    }
 }
 
 fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {

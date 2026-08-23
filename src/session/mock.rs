@@ -80,7 +80,24 @@ async fn mock_loop(
     let _ = ev_tx
         .send(SessionEvent::SessionInfo {
             session_id: Some("mock-session".into()),
-            info: json!({"model": "mock-model", "cwd": ".", "lazy": false}),
+            info: json!({
+                "model": "z-ai/glm-5.2",
+                "cwd": ".",
+                "lazy": false,
+                "version": "0.20.5",
+                "release_date": "2026.8.19",
+                "tools": {
+                    "browser": ["browser_back", "browser_click", "browser_exec"],
+                    "clarify": ["clarify"],
+                    "code_execution": ["execute_code"],
+                    "delegation": ["delegate_task"]
+                },
+                "skills": {
+                    "apple": ["apple-notes", "findmy"],
+                    "github": ["codebase-inspection", "github-auth"],
+                    "software-development": ["dogfood"]
+                }
+            }),
         })
         .await;
     let _ = ev_tx.send(mock_catalog()).await;

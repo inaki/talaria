@@ -66,6 +66,12 @@ pub struct Chat {
     pub(crate) follow: bool,
     pub(crate) thinking: bool,
     pub(crate) agents: Vec<SubagentRow>,
+    pub(crate) cwd: String,
+    pub(crate) stored_session_id: String,
+    pub(crate) version: String,
+    pub(crate) release_date: String,
+    pub(crate) tools: Vec<(String, Vec<String>)>,
+    pub(crate) skills: Vec<(String, Vec<String>)>,
 }
 
 impl Chat {
@@ -87,6 +93,15 @@ impl Chat {
             follow: true,
             thinking: false,
             agents: Vec::new(),
+            cwd: std::env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| ".".into()),
+            stored_session_id: String::new(),
+            version: String::new(),
+            release_date: String::new(),
+            tools: Vec::new(),
+            skills: Vec::new(),
         }
     }
 
@@ -99,8 +114,18 @@ impl Chat {
                     crate::theme::apply_skin(&skin);
                 }
             }
-            SessionEvent::SessionCreated { session_id, .. } => {
+            SessionEvent::SessionCreated {
+                session_id,
+                stored_session_id,
+                info,
+            } => {
                 self.session_id = session_id;
+                if let Some(s) = stored_session_id {
+                    self.stored_session_id = s;
+                }
+                if let Some(info) = info {
+                    self.apply_session_info(info);
+                }
             }
             SessionEvent::SessionInfo {
                 info, session_id, ..
@@ -108,9 +133,7 @@ impl Chat {
                 if let Some(id) = session_id {
                     self.session_id = id;
                 }
-                if let Some(m) = info.get("model").and_then(|v| v.as_str()) {
-                    self.model = m.to_string();
-                }
+                self.apply_session_info(info);
                 self.notice = None;
             }
             SessionEvent::MessageDelta { text, .. } => {
@@ -541,6 +564,29 @@ impl Chat {
         }
     }
 
+    fn apply_session_info(&mut self, info: serde_json::Value) {
+        if let Some(m) = info.get("model").and_then(|v| v.as_str()) {
+            self.model = m.to_string();
+        }
+        if let Some(c) = info.get("cwd").and_then(|v| v.as_str()) {
+            self.cwd = c.to_string();
+        }
+        if let Some(v) = info.get("version").and_then(|v| v.as_str()) {
+            self.version = v.to_string();
+        }
+        if let Some(v) = info.get("release_date").and_then(|v| v.as_str()) {
+            self.release_date = v.to_string();
+        }
+        let tools = grouped_map(info.get("tools"));
+        if !tools.is_empty() {
+            self.tools = tools;
+        }
+        let skills = grouped_map(info.get("skills"));
+        if !skills.is_empty() {
+            self.skills = skills;
+        }
+    }
+
     pub fn push_user(&mut self, text: String) {
         self.items.push(TimelineItem::User { text, row_id: None });
         self.scroll_to_bottom();
@@ -741,6 +787,32 @@ impl Chat {
             notice: None,
         };
     }
+}
+
+fn grouped_map(v: Option<&serde_json::Value>) -> Vec<(String, Vec<String>)> {
+    let Some(obj) = v.and_then(|x| x.as_object()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, Vec<String>)> = obj
+        .iter()
+        .map(|(k, val)| {
+            let mut name = k.clone();
+            if let Some(stripped) = name.strip_suffix("_tools") {
+                name = stripped.to_string();
+            }
+            let members = match val {
+                serde_json::Value::Array(a) => a
+                    .iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect(),
+                serde_json::Value::String(s) => vec![s.clone()],
+                _ => Vec::new(),
+            };
+            (name, members)
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
 }
 
 fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
