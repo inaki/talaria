@@ -1,0 +1,23 @@
+//! Clap surface. Dump is an example, not a subcommand — keeps this bin TUI-shaped.
+
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "hermes-rust",
+    version,
+    about = "Native ratatui host for Hermes tui_gateway"
+)]
+pub struct Cli {
+    /// Extra stderr notices before the alternate screen. File log is always on.
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Offline UI: MockSession only, no Python child.
+    #[arg(long)]
+    pub dev: bool,
+
+    /// Canned MockSession script: streaming | tools | approval | error
+    #[arg(long)]
+    pub mock: Option<String>,
+}
