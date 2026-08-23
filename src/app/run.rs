@@ -193,6 +193,9 @@ fn event_loop(
             last_tick = Instant::now();
         }
 
+        if crate::theme::take_canvas_dirty() {
+            terminal.clear()?;
+        }
         terminal.draw(|f| super::render::draw(app, f))?;
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());

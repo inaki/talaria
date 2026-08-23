@@ -698,7 +698,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from("/model                provider + model picker"),
                 Line::from("/skills  /plugins     install / toggle"),
                 Line::from("/mcp                  add / remove MCP servers"),
-                Line::from("/theme                gold / hermes / github palettes"),
+                Line::from("/skin                 github / default / ares / …"),
                 Line::from("/clear  /quit"),
                 Line::from("Ctrl+O           expand last tool card"),
                 Line::from("Ctrl+V           paste clipboard image (gateway)"),
@@ -850,7 +850,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                     theme::dim(),
                 )));
             }
-            paint_modal(f, area, " theme ", lines, 14);
+            paint_modal(f, area, " skin ", lines, 24);
         }
         Overlay::Model(picker) => {
             let lines = model_picker::lines(picker);

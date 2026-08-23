@@ -29,11 +29,11 @@ cargo run                                 # TUI
 
 Logs: `~/.hermes-rust/logs/hermes-rust.log` (always on, 0600). Never writes `~/.hermes`.
 
-Themes: `github` (default), `gold` (bronze/navy), `hermes` (brand blue). `/theme` in the TUI, or:
+Skins: `github` (this host's default) plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). `/skin` in the TUI (alias `/theme`), or:
 
 ```bash
-cargo run -- --theme gold
-HERMES_RUST_THEME=hermes cargo run -- --dev --mock=streaming
+cargo run -- --theme default
+HERMES_RUST_THEME=ares cargo run -- --dev --mock=streaming
 ```
 
 Choice is saved to `~/.hermes-rust/theme`.

@@ -9,7 +9,11 @@ use super::App;
 pub fn draw(app: &mut App, f: &mut Frame) {
     let area = f.area();
     f.render_widget(
-        Block::default().style(ratatui::style::Style::default().bg(theme::BACKGROUND())),
+        Block::default().style(
+            ratatui::style::Style::default()
+                .bg(theme::BACKGROUND())
+                .fg(theme::TEXT()),
+        ),
         area,
     );
     app.screen.as_screen_mut().render(

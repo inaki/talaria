@@ -14,7 +14,7 @@ Last updated: 2026-08-23.
 | Spawn `tui_gateway` over stdio JSON-RPC | Yes | `-u` + `PYTHONUNBUFFERED=1`; import-probe discovery |
 | Streaming chat | Yes | `message.delta` / `complete` |
 | Markdown in completed assistant turns | Yes | pulldown-cmark; streaming stays plain text |
-| Theme | Yes | Named palettes `github` / `gold` / `hermes`. `/theme` picker (arrow preview, Enter saves `~/.hermes-rust/theme`). `--theme` and `HERMES_RUST_THEME`. Gateway `skin` overlay only while GitHub default is active |
+| Skin | Yes | `/skin` picker: `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). Alias `/theme`. Saved to `~/.hermes-rust/theme` |
 | Opening splash | Yes | Empty transcript shows ANSI Shadow `HERMES-AGENT` wordmark + Braille caduceus + tools/skills panel (official Ink art; FIGlet via `figrs`) |
 | Composer history | Yes | `~/.hermes-rust/history` (0600, last 200), not `~/.hermes` |
 | Thinking spinner | Yes | Live dim transcript block + status; sealed on first `message.delta` |

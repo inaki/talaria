@@ -49,7 +49,7 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 ```bash
 git clone git@github.com:inaki/hermes-rust.git
 cd hermes-rust
-cargo run -- --theme gold
+cargo run -- --theme default
 ```
 
 Discovery finds `~/.hermes/hermes-agent/venv/bin/python` even if `hermes` is not on PATH. Override with `HERMES_PYTHON`.
@@ -60,7 +60,7 @@ Discovery finds `~/.hermes/hermes-agent/venv/bin/python` even if `hermes` is not
 
 ```bash
 cargo test
-cargo run -- --dev --mock=streaming --theme gold
+cargo run -- --dev --mock=streaming --theme default
 cargo run -- --dev --mock=tools
 cargo run -- --dev --mock=approval
 ```
@@ -85,7 +85,7 @@ cargo run --example dump_gateway -- --prompt hi  # calls your configured model
 | **Slash** | Catalog from the gateway; drop-up palette on `/` |
 | **Sessions** | `/sessions` saved vs live; `/branch`; `/rewind` (row_id + `confirm_truncate`) |
 | **Steer** | Enter while a turn is running sends `session.steer` |
-| **Themes** | `github` · `gold` · `hermes` — `/theme`, `--theme`, `HERMES_RUST_THEME` |
+| **Skins** | `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`) — `/skin` |
 
 Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 
@@ -101,7 +101,7 @@ Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 | **Ctrl+V** | Clipboard image (`clipboard.paste`) |
 | **Ctrl+C** | Quit (confirm) |
 
-Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/trees` `/model` `/skills` `/plugins` `/mcp` `/theme` `/clear` `/quit`.
+Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/trees` `/model` `/skills` `/plugins` `/mcp` `/skin` `/clear` `/quit`.
 
 ---
 

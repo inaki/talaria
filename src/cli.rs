@@ -21,7 +21,7 @@ pub struct Cli {
     #[arg(long)]
     pub mock: Option<String>,
 
-    /// Color theme: github | gold | hermes (overrides saved `~/.hermes-rust/theme`)
+    /// Color skin: github | default | ares | mono | slate | daylight | warm-lightmode | poseidon | sisyphus | charizard
     #[arg(long)]
     pub theme: Option<String>,
 }

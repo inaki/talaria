@@ -509,8 +509,8 @@ fn mock_catalog() -> SessionEvent {
                 help: "regenerate from a past user turn".into(),
             },
             SlashCommand {
-                name: "theme".into(),
-                help: "color theme".into(),
+                name: "skin".into(),
+                help: "color skin".into(),
             },
         ],
         warning: None,

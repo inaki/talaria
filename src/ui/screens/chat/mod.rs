@@ -1064,7 +1064,7 @@ fn grouped_map(v: Option<&serde_json::Value>) -> Vec<(String, Vec<String>)> {
 
 fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
     for (name, help) in [
-        ("theme", "color theme"),
+        ("skin", "color skin"),
         ("model", "switch or add models"),
         ("skills", "browse and install skills"),
         ("plugins", "toggle plugins"),
