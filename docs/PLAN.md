@@ -1,15 +1,17 @@
-# hermes-rust — Planning & Architecture (Discussion Draft)
+# hermes-rust — Planning & Architecture (historical)
+
+> **Status lives in [PARITY.md](./PARITY.md), not here.** This file is the architecture discussion that started the crate. Do not treat the “empty repo / nothing implemented” language below as current. **Never create `MIGRATION.md`.**
 
 | Field | Value |
 |-------|-------|
 | **Title** | Native Rust + ratatui TUI host for Hermes `tui_gateway` |
 | **Author** | TBD (discussion draft) |
 | **Date** | 2026-08-22 |
-| **Status** | **Draft — for discussion.** Nothing in this repo is implemented yet. |
-| **Repo** | `/Users/inaki/repos/hermes-rust` (empty besides `docs/`) |
-| **This file** | Canonical living document. Status SSOT until `PARITY.md` exists. **Never create `MIGRATION.md`.** |
+| **Status** | **Historical.** Implementation status: [PARITY.md](./PARITY.md). |
+| **Repo** | `/Users/inaki/repos/hermes-rust` |
+| **This file** | Architecture, protocol notes, crate-layout rationale. Not status SSOT. |
 
-**Read this as a plan we will argue about, not as a committed implementation.** Field names, spawn flags, and event payloads cited below were sampled from official Hermes docs and from `NousResearch/hermes-agent` `main` on 2026-08-22. They are a **starting hypothesis**. They must be re-verified with a live `python -m tui_gateway.entry` dump before we freeze `protocol.rs`.
+Field names, spawn flags, and event payloads cited below were sampled from official Hermes docs and from `NousResearch/hermes-agent` `main` on 2026-08-22. They were a **starting hypothesis**, later pinned by a live dump (see `protocol.rs`).
 
 **Frozen names (discussion default, see [Key Decisions](#key-decisions)):** Cargo package `hermes-rust`, binary `hermes-rust`, library `hermes_rust`, `publish = false`. The alias `hermes-tui` is **rejected** during dual-run.
 

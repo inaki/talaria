@@ -7,7 +7,7 @@ Living documentation for the native Rust + ratatui Hermes TUI host.
 | Doc | Purpose |
 |-----|---------|
 | **[PARITY.md](./PARITY.md)** | **Status SSOT.** What we cover vs `hermes --tui`. |
-| [PLAN.md](./PLAN.md) | Architecture, protocol notes, crate layout, PR history |
+| [PLAN.md](./PLAN.md) | Historical architecture discussion. **Not status.** |
 | [PARITY-PLAN.md](./PARITY-PLAN.md) | Remaining tracks vs Ink TUI |
 | [RUNNING.md](./RUNNING.md) | How to run mock / live |
 

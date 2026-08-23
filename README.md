@@ -3,7 +3,7 @@
 Native **ratatui** host for official Hermes `tui_gateway` (stdio JSON-RPC).
 This is not a reimplementation of the agent. Python still owns tools, memory, skills, and `~/.hermes`.
 
-**Status:** v1 product (chat + approval-class modals + slash catalog + session picker). Living design: [docs/PLAN.md](docs/PLAN.md).
+**Status:** [docs/PARITY.md](docs/PARITY.md). Architecture notes (historical): [docs/PLAN.md](docs/PLAN.md).
 
 ## Run
 

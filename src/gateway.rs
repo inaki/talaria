@@ -647,13 +647,13 @@ mod tests {
             .unwrap();
         assert_eq!(history["messages"][0]["row_id"], 11);
 
-        let ordinary = crate::session::ordinary_submit_params(sid, "hello");
+        let ordinary = crate::session::parse::ordinary_submit_params(sid, "hello");
         assert_eq!(ordinary.as_object().unwrap().len(), 2);
 
         let rewind = client
             .request(
                 "prompt.submit",
-                crate::session::rewind_submit_params(sid, "hello", 11, true),
+                crate::session::parse::rewind_submit_params(sid, "hello", 11, true),
             )
             .await
             .unwrap();
