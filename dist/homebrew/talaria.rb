@@ -1,13 +1,12 @@
-# Homebrew formula. Live copy for the tap:
+# Homebrew formula. Live copy: https://github.com/inaki/homebrew-talaria
 #   brew install inaki/talaria/talaria
-#
-# After tagging, set `url` + `sha256` to the GitHub archive.
 class Talaria < Formula
   desc "Unofficial native ratatui TUI host for Hermes Agent"
   homepage "https://github.com/inaki/talaria"
-  version "0.1.0"
-  head "https://github.com/inaki/talaria.git", branch: "main"
+  url "https://github.com/inaki/talaria/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "47b7e051a9a06c99df6aa647c241bf3292436923ea0eadc6119855e290bdfb17"
   license "MIT"
+  head "https://github.com/inaki/talaria.git", branch: "main"
 
   depends_on "rust" => :build
 
