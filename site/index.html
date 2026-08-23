@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Talaria Agent — unofficial TUI host for Hermes Agent</title>
+  <meta name="description" content="Talaria is an unofficial native ratatui TUI for Hermes Agent. Not a Nous Research product. MIT licensed.">
+  <meta name="color-scheme" content="dark">
+  <link rel="canonical" href="https://inaki.github.io/talaria/">
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #252544;
+      --line: #daa52066;
+      --gold: #ffd700;
+      --amber: #ffbf00;
+      --text: #fff8dc;
+      --dim: #b8860b;
+      --muted: #c4b896;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    header { margin-bottom: 1.75rem; }
+    .kicker {
+      color: var(--dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      margin: 0 0 0.4rem;
+    }
+    h1 {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: clamp(2rem, 6vw, 3.25rem);
+      font-weight: 700;
+      color: var(--gold);
+      margin: 0 0 0.4rem;
+      letter-spacing: -0.03em;
+    }
+    .lede { color: var(--muted); margin: 0; max-width: 40rem; }
+    .lede strong { color: var(--amber); font-weight: 600; }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin: 1.25rem 0 0;
+      font-size: 0.95rem;
+    }
+    a { color: var(--gold); }
+    a:hover { color: var(--text); }
+    .shot {
+      margin: 1.75rem 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #11111f;
+    }
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    h2 {
+      font-size: 1.05rem;
+      color: var(--amber);
+      margin: 2rem 0 0.6rem;
+    }
+    pre, code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      overflow-x: auto;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .note {
+      color: var(--dim);
+      font-size: 0.9rem;
+    }
+    ul { padding-left: 1.2rem; color: var(--muted); }
+    li { margin: 0.3rem 0; }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--line);
+      color: var(--dim);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="kicker">Unofficial · MIT · not a Nous Research product</p>
+    <h1>Talaria Agent</h1>
+    <p class="lede">Native <strong>ratatui</strong> host for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
+    <nav>
+      <a href="https://github.com/inaki/talaria">GitHub</a>
+      <a href="https://github.com/inaki/talaria/blob/main/NOTICE.md">Notice</a>
+      <a href="https://github.com/inaki/talaria/blob/main/LICENSE">MIT license</a>
+      <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
+    </nav>
+  </header>
+
+  <figure class="shot">
+    <img
+      src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
+      alt="Talaria Agent splash: TALARIA - AGENT wordmark, caduceus, and Hermes tools panel">
+  </figure>
+
+  <h2>Install</h2>
+  <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
+brew install inaki/talaria/talaria
+talaria</code></pre>
+
+  <h2>What it is</h2>
+  <ul>
+    <li>A host, not a fork. Speaks the official <code>tui_gateway</code> JSON-RPC.</li>
+    <li>Chrome lives in <code>~/.talaria</code>. Agent config stays in <code>~/.hermes</code>.</li>
+    <li>Independent of Nous Research. See the notice before you present it as theirs.</li>
+  </ul>
+
+  <footer>
+    Talaria is independent of Hermes Agent by
+    <a href="https://nousresearch.com">Nous Research</a>.
+    It is not affiliated with, endorsed by, or a product of Nous Research.
+  </footer>
+</body>
+</html>

@@ -23,8 +23,9 @@ talaria (this repo)              official Hermes Agent
 [![Hermes](https://img.shields.io/badge/hosts-Hermes%20Agent-FFD700)](https://github.com/NousResearch/hermes-agent)
 [![status](https://img.shields.io/badge/status-PARITY.md-4caf50)](docs/PARITY.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![site](https://img.shields.io/badge/site-inaki.github.io%2Ftalaria-daa520)](https://inaki.github.io/talaria/)
 
-Binary name is **`talaria`**, never `hermes` — so you can keep the official CLI on PATH.
+Binary name is **`talaria`**, never `hermes` — so you can keep the official CLI on PATH. Page: **https://inaki.github.io/talaria/**
 
 ---
 
@@ -142,6 +143,7 @@ On disk this process only writes **`~/.talaria/`** (logs, composer history, save
 
 | | |
 |---|---|
+| **[Site](https://inaki.github.io/talaria/)** | GitHub Pages landing |
 | **[NOTICE.md](NOTICE.md)** | Unofficial status, names, credits |
 | **[PARITY.md](docs/PARITY.md)** | What we cover vs `hermes --tui` |
 | [RUNNING.md](docs/RUNNING.md) | Mock vs live, themes, dumps |
