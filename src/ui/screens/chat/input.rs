@@ -77,15 +77,11 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
                 return None;
             }
             if let Some(cmd) = crate::shell::command_from_input(&text) {
-                let cmd = cmd.to_string();
-                chat.items.push(super::TimelineItem::Shell {
-                    command: cmd.clone(),
-                    output: String::new(),
-                    code: None,
-                    running: true,
-                });
-                chat.scroll_to_bottom();
-                return Some(ScreenAction::ShellExec { command: cmd });
+                chat.overlay = super::Overlay::BangConfirm {
+                    command: cmd.to_string(),
+                    cwd: chat.cwd.clone(),
+                };
+                return None;
             }
             if chat.streaming || chat.thinking {
                 chat.items

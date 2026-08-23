@@ -6,7 +6,7 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::paths::{create_private_dir_all, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
 
 fn on() -> bool {
     true
@@ -101,6 +101,7 @@ impl ChromePrefs {
         let Ok(mut f) = opts.open(path) else {
             return;
         };
+        ensure_private_file(path);
         if let Ok(body) = serde_json::to_string_pretty(self) {
             let _ = writeln!(f, "{body}");
         }

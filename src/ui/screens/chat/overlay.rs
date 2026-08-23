@@ -22,7 +22,7 @@ pub enum SessionTab {
     Live,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub enum Overlay {
     #[default]
     None,
@@ -90,10 +90,64 @@ pub enum Overlay {
     Custom {
         selected: usize,
     },
+    BangConfirm {
+        command: String,
+        cwd: String,
+    },
     Model(ModelPicker),
     Skills(SkillsHub),
     Plugins(PluginsHub),
     Mcp(McpHub),
+}
+
+impl std::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Overlay::None => write!(f, "None"),
+            Overlay::Sudo { request_id, draft } => f
+                .debug_struct("Sudo")
+                .field("request_id", request_id)
+                .field("draft", &if draft.is_empty() { "" } else { "***" })
+                .finish(),
+            Overlay::Secret {
+                request_id,
+                env_var,
+                prompt,
+                draft,
+            } => f
+                .debug_struct("Secret")
+                .field("request_id", request_id)
+                .field("env_var", env_var)
+                .field("prompt", prompt)
+                .field("draft", &if draft.is_empty() { "" } else { "***" })
+                .finish(),
+            Overlay::Approval { .. } => write!(f, "Approval"),
+            Overlay::Clarify { request_id, .. } => f
+                .debug_struct("Clarify")
+                .field("request_id", request_id)
+                .finish(),
+            Overlay::Sessions { .. } => write!(f, "Sessions"),
+            Overlay::Help => write!(f, "Help"),
+            Overlay::Agents { .. } => write!(f, "Agents"),
+            Overlay::Usage { .. } => write!(f, "Usage"),
+            Overlay::SpawnTrees { .. } => write!(f, "SpawnTrees"),
+            Overlay::Rewind { .. } => write!(f, "Rewind"),
+            Overlay::Theme { .. } => write!(f, "Theme"),
+            Overlay::Custom { selected } => f
+                .debug_struct("Custom")
+                .field("selected", selected)
+                .finish(),
+            Overlay::BangConfirm { command, cwd } => f
+                .debug_struct("BangConfirm")
+                .field("command", command)
+                .field("cwd", cwd)
+                .finish(),
+            Overlay::Model(_) => write!(f, "Model"),
+            Overlay::Skills(_) => write!(f, "Skills"),
+            Overlay::Plugins(_) => write!(f, "Plugins"),
+            Overlay::Mcp(_) => write!(f, "Mcp"),
+        }
+    }
 }
 
 impl Overlay {
@@ -462,6 +516,24 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 None
             }
         }
+        Overlay::BangConfirm { command, .. } => {
+            if matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N')
+            ) {
+                overlay.close();
+                return None;
+            }
+            if matches!(
+                key.code,
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y')
+            ) {
+                let command = command.clone();
+                overlay.close();
+                return Some(ScreenAction::ShellExec { command });
+            }
+            None
+        }
         Overlay::Custom { selected } => {
             if key.code == KeyCode::Esc {
                 overlay.close();
@@ -774,7 +846,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 Line::from(Span::styled("hermes-rust", theme::accent())),
                 Line::from(""),
                 Line::from("Enter            send (steer if a turn is running)"),
-                Line::from("!cmd             run a local shell command (no model turn)"),
+                Line::from("!cmd             local shell (confirms first; no model turn)"),
                 Line::from("Shift+Enter      newline"),
                 Line::from("/                command catalog"),
                 Line::from("Esc              interrupt / dismiss overlay"),
@@ -993,6 +1065,25 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect) {
                 }
                 paint_modal(f, area, " rewind ", lines, 16);
             }
+        }
+        Overlay::BangConfirm { command, cwd } => {
+            let cwd_label = if cwd.is_empty() { "." } else { cwd.as_str() };
+            let lines = vec![
+                Line::from(Span::styled("Run this local shell command?", theme::text())),
+                Line::from(""),
+                Line::from(Span::styled(format!("$ {command}"), theme::accent())),
+                Line::from(Span::styled(format!("cwd  {cwd_label}"), theme::dim())),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Runs as you, with no sandbox.",
+                    theme::error(),
+                )),
+                Line::from(Span::styled(
+                    "y / Enter run   ·   n / Esc cancel",
+                    theme::dim(),
+                )),
+            ];
+            paint_modal(f, area, " confirm shell ", lines, 12);
         }
         Overlay::Custom { selected } => {
             let prefs = crate::prefs::get();
@@ -1237,5 +1328,53 @@ mod tests {
         let esc = KeyEvent::from(KeyCode::Esc);
         assert!(handle_overlay_key(&mut overlay, esc).is_none());
         assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn bang_confirm_enter_runs_escape_cancels() {
+        let mut overlay = Overlay::BangConfirm {
+            command: "pwd".into(),
+            cwd: "/tmp".into(),
+        };
+        let esc = KeyEvent::from(KeyCode::Esc);
+        assert!(handle_overlay_key(&mut overlay, esc).is_none());
+        assert!(!overlay.is_open());
+
+        overlay = Overlay::BangConfirm {
+            command: "pwd".into(),
+            cwd: "/tmp".into(),
+        };
+        match handle_overlay_key(&mut overlay, KeyEvent::from(KeyCode::Enter)) {
+            Some(ScreenAction::ShellExec { command }) => assert_eq!(command, "pwd"),
+            other => panic!("{other:?}"),
+        }
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn bang_confirm_n_does_not_run() {
+        let mut overlay = Overlay::BangConfirm {
+            command: "rm -rf /".into(),
+            cwd: "/".into(),
+        };
+        assert!(handle_overlay_key(&mut overlay, KeyEvent::from(KeyCode::Char('n'))).is_none());
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn debug_hides_sudo_and_secret_drafts() {
+        let sudo = Overlay::Sudo {
+            request_id: "abc".into(),
+            draft: "hunter2-pass".into(),
+        };
+        let s = format!("{sudo:?}");
+        assert!(!s.contains("hunter2-pass"), "{s}");
+        let secret = Overlay::Secret {
+            request_id: "x".into(),
+            env_var: "TOKEN".into(),
+            prompt: "key".into(),
+            draft: "super-secret-draft".into(),
+        };
+        assert!(!format!("{secret:?}").contains("super-secret-draft"));
     }
 }

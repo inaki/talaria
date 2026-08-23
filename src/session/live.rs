@@ -742,6 +742,10 @@ async fn run_bang_command(command: &str, cwd: &str) -> SessionEvent {
     if !cwd.is_empty() {
         cmd.current_dir(cwd);
     }
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
     cmd.kill_on_drop(true)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -758,6 +762,7 @@ async fn run_bang_command(command: &str, cwd: &str) -> SessionEvent {
             };
         }
     };
+    let pid = child.id();
     match tokio::time::timeout(
         Duration::from_secs(crate::shell::TIMEOUT_SECS),
         child.wait_with_output(),
@@ -776,12 +781,17 @@ async fn run_bang_command(command: &str, cwd: &str) -> SessionEvent {
             code: Some(1),
             duration_ms: started.elapsed().as_millis() as u64,
         },
-        Err(_) => SessionEvent::ShellResult {
-            command: command.to_string(),
-            output: format!("timed out after {}s", crate::shell::TIMEOUT_SECS),
-            code: Some(124),
-            duration_ms: started.elapsed().as_millis() as u64,
-        },
+        Err(_) => {
+            if let Some(pid) = pid {
+                crate::shell::kill_process_group(pid);
+            }
+            SessionEvent::ShellResult {
+                command: command.to_string(),
+                output: format!("timed out after {}s", crate::shell::TIMEOUT_SECS),
+                code: Some(124),
+                duration_ms: started.elapsed().as_millis() as u64,
+            }
+        }
     }
 }
 

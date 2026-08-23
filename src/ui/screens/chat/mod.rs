@@ -927,6 +927,7 @@ impl Chat {
 
     pub fn push_user(&mut self, text: String) {
         self.mark_turn_started();
+        let text = crate::logging::strip_controls(&text);
         self.items.push(TimelineItem::User { text, row_id: None });
         self.scroll_to_bottom();
     }
@@ -1099,7 +1100,7 @@ impl Chat {
         })
     }
 
-    fn scroll_to_bottom(&mut self) {
+    pub(crate) fn scroll_to_bottom(&mut self) {
         self.follow = true;
         self.scroll = u16::MAX;
     }

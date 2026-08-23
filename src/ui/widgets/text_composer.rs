@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::paths::{create_private_dir_all, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
 use crate::ui::keys::is_newline_key;
 
 const MAX_HISTORY: usize = 200;
@@ -62,6 +62,7 @@ impl TextComposer {
         let Ok(mut file) = opts.open(path) else {
             return;
         };
+        ensure_private_file(path);
         let start = self.history.len().saturating_sub(MAX_HISTORY);
         for line in &self.history[start..] {
             let _ = writeln!(file, "{line}");
@@ -163,10 +164,12 @@ impl TextComposer {
         if text.is_empty() {
             return None;
         }
-        self.history.push(text.clone());
-        if self.history.len() > MAX_HISTORY {
-            let extra = self.history.len() - MAX_HISTORY;
-            self.history.drain(0..extra);
+        if !crate::logging::should_skip_history(&text) {
+            self.history.push(text.clone());
+            if self.history.len() > MAX_HISTORY {
+                let extra = self.history.len() - MAX_HISTORY;
+                self.history.drain(0..extra);
+            }
         }
         self.clear();
         Some(text)
@@ -385,5 +388,17 @@ mod tests {
         loaded.load_from(&path);
         assert_eq!(loaded.history, vec!["alpha", "beta"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn submit_skips_bang_and_secret_history() {
+        let mut c = TextComposer::default();
+        c.insert_str("! pwd");
+        assert_eq!(c.submit().as_deref(), Some("! pwd"));
+        c.insert_str("api_key=sk-live-abcdefghijk");
+        assert_eq!(c.submit().as_deref(), Some("api_key=sk-live-abcdefghijk"));
+        c.insert_str("list the files");
+        assert_eq!(c.submit().as_deref(), Some("list the files"));
+        assert_eq!(c.history, vec!["list the files"]);
     }
 }

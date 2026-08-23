@@ -67,6 +67,30 @@ fn default_root() -> PathBuf {
     }
 }
 
+/// Best-effort 0600 on an existing file. `OpenOptions.mode` only applies to create.
+pub fn ensure_private_file(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        if !meta.is_file() {
+            return;
+        }
+        if meta.permissions().mode() & 0o777 == 0o600 {
+            return;
+        }
+        let mut perms = meta.permissions();
+        perms.set_mode(0o600);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
 /// Best-effort 0700 directory. Logging must never fail the process.
 pub fn create_private_dir_all(path: &Path) {
     let _ = std::fs::create_dir_all(path);
@@ -94,5 +118,30 @@ mod tests {
             assert!(p.log_file().ends_with("logs/hermes-rust.log"));
             assert!(p.custom_file().ends_with("custom"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_private_file_tightens_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let p = std::env::temp_dir().join(format!(
+            "hermes-rust-mode-{}-{}",
+            std::process::id(),
+            "hist"
+        ));
+        std::fs::write(&p, "x").unwrap();
+        let mut perms = std::fs::metadata(&p).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&p, perms).unwrap();
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        ensure_private_file(&p);
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let _ = std::fs::remove_file(&p);
     }
 }

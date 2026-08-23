@@ -26,7 +26,7 @@ Last updated: 2026-08-23.
 | Saved / live sessions | Yes | `session.list`+`resume` vs `active_list`+`activate`. **Ctrl+N** new session (`session.create`); **Ctrl+D** closes selected live (`session.close`) |
 | Session branch | Yes | `/branch` → `session.branch` |
 | Steer mid-turn | Yes | Enter while streaming → `session.steer` |
-| Bang shell | Yes | `! pwd` / `!ls` runs locally in session cwd; not sent to the model (30s timeout) |
+| Bang shell | Yes | `! pwd` / `!ls` runs locally in session cwd after a confirm overlay (shows cwd); not sent to the model. 30s timeout kills the process group. Output is secret-scrubbed |
 | Subagents | Yes | Timeline + `/agents` overlay; Enter interrupts; **s** steers (`subagent.steer`) |
 | Usage | Yes | Native `/usage` overlay via `session.usage` |
 | Composer meter | Yes | Strip above the prompt: model, context fill, session / last-turn / idle clocks. `/custom` toggles the meter and the key-hint row (saved in `~/.hermes-rust/custom`) |

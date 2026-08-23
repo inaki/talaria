@@ -19,7 +19,7 @@ pub enum ModelStage {
     Disconnect,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ModelPicker {
     pub stage: ModelStage,
     pub providers: Vec<ModelProvider>,
@@ -35,6 +35,20 @@ pub struct ModelPicker {
     pub key_error: Option<String>,
     pub pending_value: Option<String>,
     pub confirm_message: Option<String>,
+}
+
+impl std::fmt::Debug for ModelPicker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelPicker")
+            .field("stage", &self.stage)
+            .field("current_model", &self.current_model)
+            .field("loading", &self.loading)
+            .field(
+                "key_input",
+                &if self.key_input.is_empty() { "" } else { "***" },
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]

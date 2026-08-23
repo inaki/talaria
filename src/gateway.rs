@@ -490,7 +490,8 @@ async fn read_stderr(inner: Arc<Inner>, stderr: tokio::process::ChildStderr) {
                 if line.is_empty() {
                     continue;
                 }
-                log_line(&format!("gw-stderr {line}"));
+                let line = logging::redact_secrets(&logging::strip_controls(&line));
+                log_line(&logging::stderr_log_line(&line));
                 {
                     let mut tail = inner.stderr_tail.lock().await;
                     if tail.len() >= 32 {

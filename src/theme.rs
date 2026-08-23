@@ -11,7 +11,7 @@ use std::sync::RwLock;
 use ratatui::style::{Color, Modifier, Style};
 use serde_json::Value;
 
-use crate::paths::{create_private_dir_all, HermesRustPaths};
+use crate::paths::{create_private_dir_all, ensure_private_file, HermesRustPaths};
 
 pub const GITHUB_ID: &str = "github";
 
@@ -359,7 +359,8 @@ pub fn save_theme_id(id: &str) {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    if let Ok(mut f) = opts.open(path) {
+    if let Ok(mut f) = opts.open(&path) {
+        ensure_private_file(&path);
         use std::io::Write;
         let _ = writeln!(f, "{}", def.id);
     }

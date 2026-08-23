@@ -67,11 +67,19 @@ pub(crate) fn rewind_turns_from_messages(messages: &[TranscriptMessage]) -> Vec<
     turns
 }
 
+fn clean(s: &str) -> String {
+    crate::logging::strip_controls(s)
+}
+
 pub(crate) fn map_gateway_event(event: GatewayEvent) -> SessionEvent {
     match event {
         GatewayEvent::Event(ev) => map_wire(ev),
-        GatewayEvent::ProtocolError { preview } => SessionEvent::ProtocolError { preview },
-        GatewayEvent::Stderr { line } => SessionEvent::Stderr { line },
+        GatewayEvent::ProtocolError { preview } => SessionEvent::ProtocolError {
+            preview: clean(&preview),
+        },
+        GatewayEvent::Stderr { line } => SessionEvent::Stderr {
+            line: crate::logging::redact_secrets(&clean(&line)),
+        },
         GatewayEvent::ChildExited { code } => SessionEvent::ChildExited { code },
     }
 }
@@ -92,8 +100,8 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
             let (text, rendered) = delta_text(&payload);
             SessionEvent::MessageDelta {
                 session_id,
-                text,
-                rendered,
+                text: clean(&text),
+                rendered: rendered.map(|s| clean(&s)),
             }
         }
         "message.complete" => {
@@ -101,15 +109,15 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .get("text")
                 .or_else(|| payload.get("rendered"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(clean);
             SessionEvent::MessageComplete { session_id, text }
         }
         "thinking.delta" | "reasoning.delta" => SessionEvent::Thinking {
             text: payload
                 .get("text")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+                .map(clean)
+                .unwrap_or_default(),
         },
         t if t.starts_with("subagent.") => {
             let kind = match t {
@@ -126,16 +134,13 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                     .and_then(|v| v.as_str())
                     .unwrap_or("sa")
                     .to_string(),
-                goal: payload
-                    .get("goal")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
+                goal: payload.get("goal").and_then(|v| v.as_str()).map(clean),
                 text: payload
                     .get("text")
                     .or_else(|| payload.get("summary"))
                     .or_else(|| payload.get("tool_preview"))
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
+                    .map(clean),
             }
         }
         "tool.start" => SessionEvent::ToolStart {
@@ -153,7 +158,7 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .get("args_text")
                 .or_else(|| payload.get("args"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+                .map(clean),
         },
         "tool.progress" => SessionEvent::ToolProgress {
             tool_id: payload
@@ -169,7 +174,7 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .get("preview")
                 .or_else(|| payload.get("output"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+                .map(clean),
         },
         "tool.complete" => SessionEvent::ToolComplete {
             tool_id: payload
@@ -186,23 +191,20 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .get("result_text")
                 .or_else(|| payload.get("summary"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            error: payload
-                .get("error")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+                .map(clean),
+            error: payload.get("error").and_then(|v| v.as_str()).map(clean),
         },
         "approval.request" => SessionEvent::ApprovalRequest {
             command: payload
                 .get("command")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+                .map(clean)
+                .unwrap_or_default(),
             description: payload
                 .get("description")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+                .map(clean)
+                .unwrap_or_default(),
             choices: payload.get("choices").and_then(|v| {
                 v.as_array().map(|a| {
                     a.iter()
@@ -253,15 +255,15 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
             prompt: payload
                 .get("prompt")
                 .and_then(|v| v.as_str())
-                .unwrap_or("secret")
-                .to_string(),
+                .map(clean)
+                .unwrap_or_else(|| "secret".into()),
         },
         "error" => SessionEvent::Error {
             message: payload
                 .get("message")
                 .and_then(|v| v.as_str())
-                .unwrap_or("Hermes reported an error")
-                .to_string(),
+                .map(clean)
+                .unwrap_or_else(|| "Hermes reported an error".into()),
         },
         "sudo.expire" => SessionEvent::SudoExpired {
             request_id: payload
@@ -1084,5 +1086,21 @@ mod tests {
         }));
         assert_eq!(ids, Some(vec![Some(7), None, Some(9)]));
         assert!(parse_survivor_user_row_ids(&json!({"status": "streaming"})).is_none());
+    }
+
+    #[test]
+    fn thinking_delta_strips_csi() {
+        let ev = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "thinking.delta".into(),
+            payload: json!({ "text": "hi\u{1b}[31mred" }),
+            session_id: None,
+        }));
+        match ev {
+            SessionEvent::Thinking { text } => {
+                assert_eq!(text, "hired");
+                assert!(!text.contains('\u{1b}'));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

@@ -12,8 +12,16 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
             }
         }
         ScreenAction::ShellExec { command } => {
-            let crate::ui::screens::CurrentScreen::Chat(chat) = &app.screen;
+            let crate::ui::screens::CurrentScreen::Chat(chat) = &mut app.screen;
             let cwd = chat.cwd.clone();
+            chat.items
+                .push(crate::ui::screens::chat::TimelineItem::Shell {
+                    command: command.clone(),
+                    output: String::new(),
+                    code: None,
+                    running: true,
+                });
+            chat.scroll_to_bottom();
             if let Some(session) = &app.session {
                 session.send(SessionCommand::ShellExec { command, cwd });
             }
