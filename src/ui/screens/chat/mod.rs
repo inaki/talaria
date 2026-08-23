@@ -141,17 +141,20 @@ impl Chat {
                 self.thinking = false;
                 self.seal_thinking();
                 self.notice = None;
-                match self.items.last_mut() {
-                    Some(TimelineItem::Assistant {
+                if let Some(i) = self.last_streaming_assistant() {
+                    if let TimelineItem::Assistant {
                         text: buf,
                         streaming,
-                    }) if *streaming => {
+                    } = &mut self.items[i]
+                    {
                         buf.push_str(&text);
+                        *streaming = true;
                     }
-                    _ => self.items.push(TimelineItem::Assistant {
+                } else {
+                    self.items.push(TimelineItem::Assistant {
                         text,
                         streaming: true,
-                    }),
+                    });
                 }
                 self.scroll_to_bottom();
             }
@@ -162,26 +165,27 @@ impl Chat {
                 if matches!(self.overlay, Overlay::Clarify { .. }) {
                     self.overlay.close();
                 }
-                match self.items.last_mut() {
-                    Some(TimelineItem::Assistant {
+                if let Some(i) = self
+                    .last_streaming_assistant()
+                    .or_else(|| self.last_assistant())
+                {
+                    if let TimelineItem::Assistant {
                         text: buf,
                         streaming,
-                    }) => {
-                        if let Some(t) = text {
-                            if buf.is_empty() {
+                    } = &mut self.items[i]
+                    {
+                        if buf.is_empty() {
+                            if let Some(t) = text {
                                 *buf = t;
                             }
                         }
                         *streaming = false;
                     }
-                    _ => {
-                        if let Some(t) = text {
-                            self.items.push(TimelineItem::Assistant {
-                                text: t,
-                                streaming: false,
-                            });
-                        }
-                    }
+                } else if let Some(t) = text {
+                    self.items.push(TimelineItem::Assistant {
+                        text: t,
+                        streaming: false,
+                    });
                 }
                 self.scroll_to_bottom();
             }
@@ -464,6 +468,7 @@ impl Chat {
                     Some(TimelineItem::Thinking { text: buf, live }) if *live => {
                         buf.push_str(&text);
                     }
+                    _ if text.is_empty() => {}
                     _ => self.items.push(TimelineItem::Thinking { text, live: true }),
                 }
                 self.scroll_to_bottom();
@@ -662,6 +667,24 @@ impl Chat {
         if let Some(TimelineItem::Thinking { live, .. }) = self.items.last_mut() {
             *live = false;
         }
+    }
+
+    fn last_streaming_assistant(&self) -> Option<usize> {
+        self.items.iter().rposition(|it| {
+            matches!(
+                it,
+                TimelineItem::Assistant {
+                    streaming: true,
+                    ..
+                }
+            )
+        })
+    }
+
+    fn last_assistant(&self) -> Option<usize> {
+        self.items
+            .iter()
+            .rposition(|it| matches!(it, TimelineItem::Assistant { .. }))
     }
 
     pub fn toggle_last_tool(&mut self) {
@@ -906,6 +929,37 @@ mod tests {
         }
         match &chat.items[2] {
             TimelineItem::User { row_id, .. } => assert_eq!(*row_id, None),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_seals_streaming_assistant_even_if_thinking_is_last() {
+        let mut chat = Chat::new();
+        chat.apply_event(SessionEvent::MessageDelta {
+            session_id: None,
+            text: "hello **world**".into(),
+            rendered: None,
+        });
+        chat.apply_event(SessionEvent::Thinking {
+            text: String::new(),
+        });
+        chat.apply_event(SessionEvent::Thinking { text: "hm".into() });
+        chat.apply_event(SessionEvent::MessageComplete {
+            session_id: None,
+            text: Some("hello **world**".into()),
+        });
+        let assistants: Vec<_> = chat
+            .items
+            .iter()
+            .filter(|it| matches!(it, TimelineItem::Assistant { .. }))
+            .collect();
+        assert_eq!(assistants.len(), 1, "{:?}", chat.items.len());
+        match &chat.items[0] {
+            TimelineItem::Assistant { text, streaming } => {
+                assert_eq!(text, "hello **world**");
+                assert!(!*streaming);
+            }
             other => panic!("{other:?}"),
         }
     }

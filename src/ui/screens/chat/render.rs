@@ -3,6 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
+use unicode_width::UnicodeWidthChar;
 
 use crate::theme;
 use crate::ui::screens::chat::TimelineItem;
@@ -73,43 +74,50 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
         return;
     }
     let mut lines: Vec<Line> = Vec::new();
+    let col_w = area.width.max(12);
     for item in &chat.items {
         match item {
             TimelineItem::User { text: t, .. } => {
-                lines.push(Line::from(Span::styled("you", theme::user())));
+                let mut first = true;
                 for l in t.split('\n') {
-                    lines.push(Line::from(Span::styled(format!("  {l}"), theme::user())));
+                    if first {
+                        lines.push(Line::from(vec![
+                            Span::styled("● ", theme::user().add_modifier(Modifier::BOLD)),
+                            Span::styled(l.to_string(), theme::user()),
+                        ]));
+                        first = false;
+                    } else {
+                        lines.push(Line::from(Span::styled(format!("  {l}"), theme::user())));
+                    }
                 }
                 lines.push(Line::from(""));
             }
             TimelineItem::Assistant { text, streaming } => {
-                let label = if *streaming { "hermes ▍" } else { "hermes" };
-                lines.push(Line::from(Span::styled(label, theme::accent())));
+                let mut body: Vec<Line> = Vec::new();
                 if *streaming {
                     for l in text.split('\n') {
-                        lines.push(Line::from(Span::styled(
-                            format!("  {l}"),
-                            theme::assistant(),
-                        )));
+                        body.push(Line::from(Span::styled(l.to_string(), theme::assistant())));
                     }
                 } else {
-                    for mut line in markdown_to_lines(text) {
-                        let mut spans = vec![Span::raw("  ")];
-                        spans.extend(line.spans.drain(..));
-                        line.spans = spans;
-                        lines.push(line);
-                    }
+                    body = markdown_to_lines(text);
                 }
+                lines.extend(assistant_card(body, *streaming, col_w));
                 lines.push(Line::from(""));
             }
             TimelineItem::Thinking { text, live } => {
-                let label = if *live { "thinking ▍" } else { "thinking" };
-                lines.push(Line::from(Span::styled(label, theme::dim())));
-                let body: Vec<&str> = text.split('\n').collect();
-                let start = body.len().saturating_sub(8);
-                for l in &body[start..] {
-                    lines.push(Line::from(Span::styled(format!("  {l}"), theme::dim())));
-                }
+                let raw: Vec<&str> = text.split('\n').collect();
+                let start = raw.len().saturating_sub(8);
+                let body = raw[start..]
+                    .iter()
+                    .map(|l| Line::from(Span::styled((*l).to_string(), theme::dim())))
+                    .collect();
+                lines.extend(rounded_panel(
+                    vec![Span::styled(" thinking", theme::dim())],
+                    body,
+                    panel_width(col_w),
+                    *live,
+                    true,
+                ));
                 lines.push(Line::from(""));
             }
             TimelineItem::Tool {
@@ -125,42 +133,36 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                 let state = if *done { "done" } else { "running" };
                 if !*expanded {
                     let hint = if result.is_empty() {
-                        preview.clone()
+                        preview.as_str()
                     } else {
-                        result.lines().next().unwrap_or("").to_string()
+                        result.lines().next().unwrap_or("")
                     };
-                    lines.push(Line::from(Span::styled(
-                        format!("▸ tool  {name}  [{state}]  {hint}"),
-                        theme::tool(),
-                    )));
+                    lines.push(tool_chip(name, state, hint, panel_width(col_w)));
                     lines.push(Line::from(Span::styled("  Ctrl+O expand", theme::dim())));
                 } else {
-                    let mark = if *done { "└" } else { "│" };
-                    lines.push(Line::from(Span::styled(
-                        format!("┌ tool  {name}  [{state}]"),
-                        theme::tool(),
-                    )));
+                    let mut body: Vec<Line> = Vec::new();
                     if !args.is_empty() {
-                        lines.push(Line::from(Span::styled(format!("│ {args}"), theme::dim())));
+                        body.push(Line::from(Span::styled(args.clone(), theme::dim())));
                     }
                     if !preview.is_empty() && result.is_empty() {
-                        lines.push(Line::from(Span::styled(
-                            format!("│ {preview}"),
-                            theme::dim(),
-                        )));
+                        body.push(Line::from(Span::styled(preview.clone(), theme::dim())));
                     }
                     if !result.is_empty() {
                         for l in result.split('\n').take(12) {
-                            lines.push(Line::from(Span::styled(format!("│ {l}"), theme::text())));
+                            body.push(Line::from(Span::styled(l.to_string(), theme::text())));
                         }
                     }
                     if let Some(err) = error {
-                        lines.push(Line::from(Span::styled(format!("│ {err}"), theme::error())));
+                        body.push(Line::from(Span::styled(err.clone(), theme::error())));
                     }
-                    lines.push(Line::from(Span::styled(
-                        format!("{mark}  Ctrl+O collapse"),
-                        theme::tool(),
-                    )));
+                    body.push(Line::from(Span::styled("Ctrl+O collapse", theme::dim())));
+                    lines.extend(rounded_panel(
+                        vec![Span::styled(format!(" ▸ {name}  [{state}]"), theme::tool())],
+                        body,
+                        panel_width(col_w),
+                        !*done,
+                        true,
+                    ));
                 }
                 lines.push(Line::from(""));
             }
@@ -361,6 +363,206 @@ fn append_grouped(lines: &mut Vec<Line>, groups: &[(String, Vec<String>)], max: 
     }
 }
 
+fn border_style() -> Style {
+    Style::default().fg(theme::INPUT_BORDER())
+}
+
+fn b(s: &str) -> Span<'static> {
+    Span::styled(s.to_string(), border_style())
+}
+
+fn paint_card(line: Line<'static>, fill: bool) -> Line<'static> {
+    if fill {
+        line.style(Style::default().bg(theme::SURFACE()))
+    } else {
+        line
+    }
+}
+
+fn panel_width(col_w: u16) -> usize {
+    (col_w as usize).max(12)
+}
+
+/// Official brand mark (staff of Asclepius), same glyph as Hermes CLI `response_label`.
+const RESPONSE_MARK: &str = "⚕";
+
+/// Rounded response panel: `╭─ ⚕ Hermes ───╮` / `│ body │` / `╰───────╯`.
+fn assistant_card(body: Vec<Line<'static>>, streaming: bool, width: u16) -> Vec<Line<'static>> {
+    rounded_panel(
+        vec![
+            Span::raw(" "),
+            Span::styled(RESPONSE_MARK, theme::accent()),
+            Span::raw(" "),
+            Span::styled("Hermes", theme::accent().add_modifier(Modifier::BOLD)),
+        ],
+        body,
+        panel_width(width),
+        streaming,
+        false,
+    )
+}
+
+fn rounded_panel(
+    title: Vec<Span<'static>>,
+    body: Vec<Line<'static>>,
+    width: usize,
+    streaming: bool,
+    fill: bool,
+) -> Vec<Line<'static>> {
+    let mut top = vec![b("╭─")];
+    top.extend(title);
+    if streaming {
+        top.push(Span::styled(" ▍", theme::dim()));
+    }
+    top.push(Span::raw(" "));
+    let used = Line::from(top.clone()).width();
+    let dash = width.saturating_sub(used).saturating_sub(1);
+    top.push(b(&"─".repeat(dash)));
+    top.push(b("╮"));
+
+    let inner = width.saturating_sub(4); // │␠ content ␠│
+    let mut out = vec![paint_card(Line::from(top), fill)];
+    if body.is_empty() {
+        let placeholder = if streaming {
+            Line::from(Span::styled("▍", theme::dim()))
+        } else {
+            Line::from("")
+        };
+        out.push(card_row(placeholder, inner, fill));
+    } else {
+        for line in body {
+            for row in wrap_line(line, inner) {
+                out.push(card_row(row, inner, fill));
+            }
+        }
+    }
+    out.push(paint_card(
+        Line::from(vec![
+            b("╰"),
+            b(&"─".repeat(width.saturating_sub(2))),
+            b("╯"),
+        ]),
+        fill,
+    ));
+    out
+}
+
+fn card_row(content: Line<'static>, inner: usize, fill: bool) -> Line<'static> {
+    let mut spans = vec![b("│"), Span::raw(" ")];
+    let content_w = content.width().min(inner);
+    spans.extend(content.spans);
+    spans.push(Span::raw(
+        " ".repeat(inner.saturating_sub(content_w).saturating_add(1)),
+    ));
+    spans.push(b("│"));
+    paint_card(Line::from(spans), fill)
+}
+
+fn tool_chip(name: &str, state: &str, hint: &str, width: usize) -> Line<'static> {
+    let mut label = format!(" ▸ {name}  ·  {state}");
+    if !hint.is_empty() {
+        label.push_str("  ");
+        label.push_str(hint);
+    }
+    let budget = width.saturating_sub(3); // ╭ … ╮
+    if display_width(&label) > budget {
+        label = ellipsize(&label, budget);
+    }
+    paint_card(
+        Line::from(vec![
+            b("╭"),
+            Span::styled(label, theme::tool()),
+            b(" ╮"),
+        ]),
+        true,
+    )
+}
+
+fn display_width(s: &str) -> usize {
+    s.chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum()
+}
+
+fn ellipsize(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    if display_width(s) <= max {
+        return s.to_string();
+    }
+    if max <= 1 {
+        return "…".to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > keep {
+            break;
+        }
+        out.push(ch);
+        w += cw;
+    }
+    out.push('…');
+    out
+}
+
+fn wrap_line(line: Line<'static>, max: usize) -> Vec<Line<'static>> {
+    if max == 0 || line.width() <= max {
+        return vec![line];
+    }
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    let mut cur: Vec<Span<'static>> = Vec::new();
+    let mut buf = String::new();
+    let mut buf_style = Style::default();
+    let mut w = 0usize;
+
+    let flush_buf = |cur: &mut Vec<Span<'static>>, buf: &mut String, style: Style| {
+        if !buf.is_empty() {
+            cur.push(Span::styled(std::mem::take(buf), style));
+        }
+    };
+
+    for span in line.spans {
+        let style = span.style;
+        for ch in span.content.chars() {
+            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if cw == 0 {
+                if buf.is_empty() && cur.is_empty() {
+                    continue;
+                }
+                if style != buf_style {
+                    flush_buf(&mut cur, &mut buf, buf_style);
+                    buf_style = style;
+                }
+                buf.push(ch);
+                continue;
+            }
+            if w + cw > max && w > 0 {
+                flush_buf(&mut cur, &mut buf, buf_style);
+                rows.push(Line::from(std::mem::take(&mut cur)));
+                w = 0;
+            }
+            if style != buf_style && !buf.is_empty() {
+                flush_buf(&mut cur, &mut buf, buf_style);
+            }
+            buf_style = style;
+            buf.push(ch);
+            w += cw;
+        }
+    }
+    flush_buf(&mut cur, &mut buf, buf_style);
+    if !cur.is_empty() {
+        rows.push(Line::from(cur));
+    }
+    if rows.is_empty() {
+        rows.push(Line::from(""));
+    }
+    rows
+}
+
 fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -459,4 +661,88 @@ fn composer_lines(
         lines.push(Line::from(spans));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn visible(lines: &[Line]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn assistant_card_uses_brand_title_and_even_rows() {
+        let lines = assistant_card(vec![Line::from("hello")], false, 40);
+        let vis = visible(&lines);
+        assert!(vis[0].contains(RESPONSE_MARK), "{vis:?}");
+        assert!(vis[0].contains("Hermes"), "{vis:?}");
+        assert!(vis[0].starts_with('╭'), "{vis:?}");
+        assert!(vis.last().unwrap().starts_with('╰'), "{vis:?}");
+        let w = lines[0].width();
+        assert_eq!(w, 40);
+        assert!(
+            lines.iter().all(|l| l.width() == w),
+            "{:?}",
+            lines.iter().map(|l| l.width()).collect::<Vec<_>>()
+        );
+        assert!(vis.iter().any(|row| row.contains("hello")), "{vis:?}");
+    }
+
+    #[test]
+    fn assistant_card_has_no_surface_fill() {
+        let lines = assistant_card(vec![Line::from("hello")], false, 40);
+        assert!(
+            lines.iter().all(|l| l.style.bg.is_none()),
+            "assistant card should sit on the terminal background"
+        );
+    }
+
+    #[test]
+    fn thinking_panel_keeps_surface_fill() {
+        let lines = rounded_panel(
+            vec![Span::styled(" thinking", theme::dim())],
+            vec![Line::from("hmm")],
+            40,
+            false,
+            true,
+        );
+        assert!(
+            lines.iter().all(|l| l.style.bg == Some(theme::SURFACE())),
+            "thinking/tool panels keep the surface fill"
+        );
+    }
+
+    #[test]
+    fn assistant_card_marks_streaming() {
+        let lines = assistant_card(vec![Line::from("x")], true, 32);
+        let top = visible(&lines).remove(0);
+        assert!(top.contains('▍'), "{top}");
+        assert!(!top.contains('…'), "{top}");
+    }
+
+    #[test]
+    fn wrap_line_keeps_rows_within_budget() {
+        let rows = wrap_line(Line::from("abcdefghij"), 4);
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|r| r.width() <= 4));
+    }
+
+    #[test]
+    fn tool_chip_hugs_label() {
+        let line = tool_chip("terminal", "done", "ls -la", 80);
+        let vis: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(vis.starts_with('╭'), "{vis}");
+        assert!(vis.contains("terminal"), "{vis}");
+        assert!(vis.ends_with('╮'), "{vis}");
+        assert!(line.width() < 80, "{}", line.width());
+    }
 }
