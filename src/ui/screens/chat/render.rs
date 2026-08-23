@@ -51,10 +51,28 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
         f.render_widget(chat.key_hints_impl(), gutter(chunks[i]));
     }
 
-    super::overlay::draw_overlay(&chat.overlay, f, area, chat.update_available.as_deref());
+    super::overlay::draw_overlay(
+        &chat.overlay,
+        f,
+        area,
+        chat.update_available.as_deref(),
+        (!chat.version.is_empty()).then_some(chat.version.as_str()),
+    );
     if chat.confirm_quit {
         draw_quit_modal(f, area);
     }
+}
+
+fn version_line(
+    name: &str,
+    ver: &str,
+    name_style: Style,
+    ver_style: Style,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("{name:<16}"), name_style),
+        Span::styled(ver.to_string(), ver_style),
+    ])
 }
 
 fn gutter(area: Rect) -> Rect {
@@ -339,21 +357,28 @@ fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'st
 fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
     let mut lines: Vec<Line> = Vec::new();
     if wide {
-        lines.push(Line::from(Span::styled(
-            format!("Talaria Client v{}", env!("CARGO_PKG_VERSION")),
+        lines.push(version_line(
+            "Talaria Client",
+            &format!("v{}", env!("CARGO_PKG_VERSION")),
             theme::accent().add_modifier(Modifier::BOLD),
-        )));
+            theme::accent(),
+        ));
+        if !chat.version.is_empty() {
+            let mut hermes_ver = format!("v{}", chat.version);
+            if !chat.release_date.is_empty() {
+                hermes_ver.push_str(&format!(" ({})", chat.release_date));
+            }
+            lines.push(version_line(
+                "Hermes Agent",
+                &hermes_ver,
+                theme::tool().add_modifier(Modifier::BOLD),
+                theme::dim(),
+            ));
+        }
         lines.push(Line::from(Span::styled(
             "Native Rust TUI for Hermes Agent",
             theme::dim(),
         )));
-        if !chat.version.is_empty() {
-            let mut hermes = format!("Hermes Agent v{}", chat.version);
-            if !chat.release_date.is_empty() {
-                hermes.push_str(&format!(" ({})", chat.release_date));
-            }
-            lines.push(Line::from(Span::styled(hermes, theme::dim())));
-        }
         if let Some(v) = &chat.update_available {
             lines.push(Line::from(Span::styled(
                 crate::update::notice_line(v),
@@ -362,6 +387,11 @@ fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
         }
         lines.push(Line::from(""));
     } else {
+        let mut vers = format!("Talaria v{}", env!("CARGO_PKG_VERSION"));
+        if !chat.version.is_empty() {
+            vers.push_str(&format!(" · Hermes v{}", chat.version));
+        }
+        lines.push(Line::from(Span::styled(vers, theme::dim())));
         let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
         lines.push(Line::from(vec![
             Span::styled(model.to_string(), theme::tool()),

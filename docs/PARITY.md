@@ -15,7 +15,7 @@ Last updated: 2026-08-23.
 | Streaming chat | Yes | `message.delta` / `complete` |
 | Markdown in completed assistant turns | Yes | pulldown-cmark; streaming stays plain text |
 | Skin | Yes | `/skin` picker: `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). Alias `/theme`. Saved to `~/.talaria/theme` |
-| Opening splash | Yes | Empty transcript shows ANSI Shadow `TALARIA - CLIENT` wordmark + Braille caduceus + tools/skills panel titled **Talaria Client** |
+| Opening splash | Yes | Empty transcript shows ANSI Shadow `TALARIA - CLIENT` wordmark + Braille caduceus. Panel lists **Talaria Client v…** and **Hermes Agent v…** on separate lines |
 | Composer history | Yes | `~/.talaria/history` (0600, last 200), not `~/.hermes` |
 | Thinking spinner | Yes | Live dim transcript block + status; sealed on first `message.delta` |
 | Tools | Yes | Collapsed one-liner; **click** or **Ctrl+O** expands a card (Ctrl+O uses the selected card, else the last); secrets redacted |

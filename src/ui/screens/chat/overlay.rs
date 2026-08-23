@@ -639,7 +639,13 @@ fn deny_choice(choices: &[String]) -> Option<&str> {
         .map(|s| s.as_str())
 }
 
-pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect, update: Option<&str>) {
+pub fn draw_overlay(
+    overlay: &Overlay,
+    f: &mut Frame,
+    area: Rect,
+    update: Option<&str>,
+    hermes: Option<&str>,
+) {
     match overlay {
         Overlay::None => {}
         Overlay::Approval {
@@ -843,12 +849,21 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect, update: Option
         }
         Overlay::Help => {
             let mut lines = vec![
-                Line::from(Span::styled("talaria client", theme::accent())),
                 Line::from(Span::styled(
-                    "Native Rust TUI for Hermes Agent",
-                    theme::dim(),
+                    format!("Talaria Client  v{}", env!("CARGO_PKG_VERSION")),
+                    theme::accent(),
                 )),
             ];
+            if let Some(v) = hermes {
+                lines.push(Line::from(Span::styled(
+                    format!("Hermes Agent    v{v}"),
+                    theme::dim(),
+                )));
+            }
+            lines.push(Line::from(Span::styled(
+                "Native Rust TUI for Hermes Agent",
+                theme::dim(),
+            )));
             if let Some(v) = update {
                 lines.push(Line::from(Span::styled(
                     crate::update::notice_line(v),
@@ -886,7 +901,7 @@ pub fn draw_overlay(overlay: &Overlay, f: &mut Frame, area: Rect, update: Option
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ]);
-            let h = if update.is_some() { 25 } else { 24 };
+            let h = 24 + u16::from(update.is_some()) + u16::from(hermes.is_some());
             paint_modal(f, area, " help ", lines, h);
         }
         Overlay::Agents {
