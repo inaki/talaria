@@ -50,18 +50,18 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 # then: hermes setup   # Nous Portal is the easy path
 ```
 
-**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`.
+**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`. Latest: **[v0.1.0](https://github.com/inaki/talaria/releases/tag/v0.1.0)**.
 
 ```bash
-# curl (GitHub Releases)
+# Homebrew (macOS; builds from source)
+brew install inaki/talaria/talaria
+
+# curl (GitHub Releases: macOS Apple silicon, Linux x86_64/arm64)
 curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 # pin:  curl … | bash -s -- v0.1.0
-
-# Homebrew (tap; builds from git until a stable bottle exists)
-brew install inaki/talaria/talaria
 ```
 
-Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`.
+Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`. Intel Mac: use brew (no prebuilt in v0.1.0).
 
 **Quit the other TUI first.** `talaria` refuses to start if `hermes --tui` or another `tui_gateway` is already running (they race the same SQLite). Override with `--force` or `TALARIA_ALLOW_CONCURRENT=1`.
 

@@ -24,7 +24,7 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-14
             target: x86_64-apple-darwin
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -34,18 +34,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release --locked
+        run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Pack
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           ver="${tag#v}"
-          bin="target/release/talaria"
+          bin="target/${{ matrix.target }}/release/talaria"
           chmod +x "$bin"
           strip "$bin" || true
           asset="talaria-${ver}-${{ matrix.target }}.tar.gz"
-          tar -czf "$asset" -C target/release talaria
+          tar -czf "$asset" -C "target/${{ matrix.target }}/release" talaria
           python3 - <<PY
           import hashlib, pathlib
           p = pathlib.Path("${asset}")
