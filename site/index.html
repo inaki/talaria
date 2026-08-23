@@ -160,6 +160,34 @@
     pre, code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
+    .code-block {
+      position: relative;
+    }
+    .code-block pre {
+      margin: 0;
+      padding-right: 2.6rem;
+    }
+    .copy {
+      position: absolute;
+      top: 0.45rem;
+      right: 0.45rem;
+      width: 1.85rem;
+      height: 1.85rem;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #1a1a2ecc;
+      color: var(--gold);
+      cursor: pointer;
+    }
+    .copy:hover {
+      border-color: var(--gold);
+      background: #ffd70022;
+    }
+    .copy svg { width: 0.95rem; height: 0.95rem; display: block; }
+    .copy.copied { color: #4caf50; border-color: #4caf50; }
     pre {
       background: var(--surface);
       border: 1px solid var(--line);
@@ -225,10 +253,16 @@
     <h2>Install</h2>
     <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
     <p class="install-label">Homebrew <span>macOS · builds from source</span></p>
-    <pre><code>brew install inaki/talaria/talaria
+    <div class="code-block">
+      <pre><code>brew install inaki/talaria/talaria
 talaria</code></pre>
+      <button class="copy" type="button" aria-label="Copy Homebrew install command"></button>
+    </div>
     <p class="install-label">curl <span>macOS / Linux · prebuilt binary</span></p>
-    <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash</code></pre>
+    <div class="code-block">
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash</code></pre>
+      <button class="copy" type="button" aria-label="Copy curl install command"></button>
+    </div>
 
     <h2>What it is</h2>
     <ul>
@@ -243,5 +277,27 @@ talaria</code></pre>
       It is not affiliated with, endorsed by, or a product of Nous Research.
     </footer>
   </main>
+  <script>
+    const clip = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    const check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    document.querySelectorAll(".code-block").forEach((block) => {
+      const btn = block.querySelector(".copy");
+      const code = block.querySelector("pre");
+      if (!btn || !code) return;
+      btn.innerHTML = clip;
+      btn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code.innerText.trim());
+          btn.classList.add("copied");
+          btn.innerHTML = check;
+          setTimeout(() => {
+            btn.classList.remove("copied");
+            btn.innerHTML = clip;
+          }, 1400);
+        } catch (_) {}
+      });
+    });
+  </script>
 </body>
 </html>
+
