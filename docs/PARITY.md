@@ -30,6 +30,7 @@ Last updated: 2026-08-23.
 | Subagents | Yes | Timeline + `/agents` overlay; Enter interrupts; **s** steers (`subagent.steer`) |
 | Usage | Yes | Native `/usage` overlay via `session.usage` |
 | Composer meter | Yes | Strip above the prompt: model, context fill, session / last-turn / idle clocks. `/custom` toggles the meter and the key-hint row (saved in `~/.talaria/custom`) |
+| Copy | Yes | Drag-select transcript copies on mouse-up (OSC 52 + pbcopy / wl-copy / xclip + `~/.talaria/last-copy.txt`). `/copy` last assistant response; `/copy N` and `/copy [N] file` like Grok. `TALARIA_COPY_FILE` overrides the backup. Shift+drag still uses the terminal's native selection. |
 | Image attach | Partial | Path paste + **Ctrl+V** `clipboard.paste` (gateway reads OS clipboard) |
 | Rewind / edit | Yes | `/rewind` lists `session.history` user turns with `row_id`; confirm → `prompt.submit` with `confirm_truncate` + `truncate_before_row_id` (+ `confirm_empty_truncate` on the first turn). Ordinary send stays `{session_id, text}` only |
 | Spawn-tree dashboard | Partial | `/trees` lists `spawn_tree.list`; Enter → `spawn_tree.load` |

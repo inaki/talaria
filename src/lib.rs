@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod cli;
+pub mod clipboard;
 pub mod discover;
 pub mod gateway;
 pub mod logging;

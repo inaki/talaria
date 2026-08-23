@@ -50,7 +50,7 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 # then: hermes setup   # Nous Portal is the easy path
 ```
 
-**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`. Latest: **[v0.1.4](https://github.com/inaki/talaria/releases/tag/v0.1.4)**.
+**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`. Latest: **[v0.1.5](https://github.com/inaki/talaria/releases/tag/v0.1.5)**.
 
 ```bash
 # Homebrew (macOS; builds from source)
@@ -58,7 +58,7 @@ brew install inaki/talaria/talaria
 
 # curl (GitHub Releases: macOS Apple silicon/Intel, Linux x86_64/arm64)
 curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
-# pin:  curl … | bash -s -- v0.1.4
+# pin:  curl … | bash -s -- v0.1.5
 ```
 
 Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`.
@@ -115,10 +115,11 @@ Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 | **/** | Command palette |
 | **Esc** | Interrupt · dismiss overlay |
 | **Ctrl+O** | Expand last tool card |
+| **Drag** | Highlight transcript text to copy |
 | **Ctrl+V** | Clipboard image (`clipboard.paste`) |
 | **Ctrl+C** | Quit (confirm) |
 
-Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/usage` `/custom` `/trees` `/model` `/skills` `/plugins` `/mcp` `/skin` `/clear` `/quit`.
+Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/usage` `/custom` `/copy` `/trees` `/model` `/skills` `/plugins` `/mcp` `/skin` `/clear` `/quit`.
 
 ---
 

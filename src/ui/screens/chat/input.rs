@@ -43,6 +43,9 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
     }
 
     if key.code == KeyCode::Esc {
+        if chat.clear_selection() {
+            return None;
+        }
         if chat.streaming || chat.thinking {
             chat.finish_turn();
             return Some(ScreenAction::Interrupt);
@@ -145,6 +148,7 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         "clear" => {
             chat.items.clear();
             chat.scroll = 0;
+            chat.clear_selection();
             chat.notice = Some("transcript cleared".into());
             None
         }
@@ -197,6 +201,10 @@ fn local_or_dispatch(chat: &mut Chat, cmd: &str) -> Option<ScreenAction> {
         "usage" => Some(ScreenAction::OpenUsage),
         "custom" => {
             chat.open_custom();
+            None
+        }
+        "copy" => {
+            chat.copy_assistant(rest);
             None
         }
         _ => {

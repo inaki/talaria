@@ -17,8 +17,13 @@ const EDGE_PAD: u16 = 1;
 pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     let show_bar = crate::prefs::status_bar();
     let show_hints = crate::prefs::key_hints();
-    // 1 content row + top/bottom border, then grows with Shift+Enter.
-    let composer_h = chat.composer.visual_lines().saturating_add(2).max(3);
+    // 1 content row + top/bottom border. Soft-wrap and Shift+Enter grow the box.
+    let wrap_cols = area.width.saturating_sub(4); // borders + "› "
+    let composer_h = chat
+        .composer
+        .visual_lines(wrap_cols)
+        .saturating_add(2)
+        .max(3);
     let mut constraints = vec![Constraint::Min(3)];
     if show_bar {
         constraints.push(Constraint::Length(EDGE_PAD));
@@ -34,7 +39,13 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
         .split(area);
 
     let mut i = 0;
-    draw_transcript(chat, f, chunks[i]);
+    let transcript = chunks[i];
+    draw_transcript(chat, f, transcript);
+    if chat.notice_expires.is_some() {
+        if let Some(n) = chat.notice.as_deref() {
+            draw_toast(f, transcript, n);
+        }
+    }
     i += 1;
     if show_bar {
         i += 1; // EDGE_PAD above the meter
@@ -63,12 +74,7 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     }
 }
 
-fn version_line(
-    name: &str,
-    ver: &str,
-    name_style: Style,
-    ver_style: Style,
-) -> Line<'static> {
+fn version_line(name: &str, ver: &str, name_style: Style, ver_style: Style) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{name:<16}"), name_style),
         Span::styled(ver.to_string(), ver_style),
@@ -93,6 +99,7 @@ fn draw_meter(chat: &Chat, f: &mut Frame, area: Rect) {
 
 fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     if chat.items.is_empty() && !chat.streaming {
+        chat.plain_rows.clear();
         draw_splash(chat, f, area);
         return;
     }
@@ -271,8 +278,34 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
         }
     }
 
-    let paragraph = Paragraph::new(lines.clone()).wrap(Wrap { trim: false });
-    let total = paragraph.line_count(area.width) as u16;
+    let width = area.width.max(1) as usize;
+    let logical = lines;
+    let mut lines: Vec<Line> = Vec::with_capacity(logical.len());
+    let mut remap: Vec<u16> = Vec::with_capacity(logical.len() + 1);
+    for line in logical {
+        remap.push(lines.len() as u16);
+        lines.extend(wrap_line(line, width));
+    }
+    remap.push(lines.len() as u16);
+    for (start, len, _) in chat.tool_hits.iter_mut() {
+        let s = (*start as usize).min(remap.len().saturating_sub(1));
+        let e = s
+            .saturating_add(*len as usize)
+            .min(remap.len().saturating_sub(1));
+        *start = remap[s];
+        *len = remap[e].saturating_sub(remap[s]);
+    }
+
+    chat.plain_rows = lines.iter().map(line_plain).collect();
+    if let Some((a, b)) = chat.selection {
+        lines = lines
+            .into_iter()
+            .enumerate()
+            .map(|(i, line)| highlight_line(line, i as u16, a, b))
+            .collect();
+    }
+
+    let total = lines.len() as u16;
     let max_scroll = total.saturating_sub(area.height);
     if chat.follow {
         chat.scroll = max_scroll;
@@ -282,7 +315,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
             chat.follow = true;
         }
     }
-    let paragraph = paragraph.scroll((chat.scroll, 0));
+    let paragraph = Paragraph::new(lines).scroll((chat.scroll, 0));
     f.render_widget(paragraph, area);
 }
 
@@ -706,9 +739,92 @@ fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {
             &indent,
             accent,
             body,
+            inner.width.saturating_sub(indent.chars().count() as u16),
         )
     };
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn line_plain(line: &Line<'_>) -> String {
+    line.spans.iter().map(|s| s.content.as_ref()).collect()
+}
+
+fn highlight_line(line: Line<'static>, row: u16, a: (u16, u16), b: (u16, u16)) -> Line<'static> {
+    let (s, e) = if a <= b { (a, b) } else { (b, a) };
+    if row < s.0 || row > e.0 {
+        return line;
+    }
+    let from = if row == s.0 { s.1 } else { 0 };
+    let to = if row == e.0 {
+        e.1.saturating_add(1)
+    } else {
+        u16::MAX
+    };
+    highlight_cols(line, from, to)
+}
+
+fn highlight_cols(line: Line<'static>, from: u16, to: u16) -> Line<'static> {
+    if from >= to {
+        return line;
+    }
+    let hi = Style::default()
+        .fg(theme::BACKGROUND())
+        .bg(theme::PRIMARY());
+    let line_style = line.style;
+    let mut out: Vec<Span> = Vec::new();
+    let mut col = 0u16;
+    for span in line.spans {
+        let style = span.style;
+        let mut buf = String::new();
+        let mut buf_hi = false;
+        for ch in span.content.chars() {
+            let cw = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
+            if cw == 0 {
+                buf.push(ch);
+                continue;
+            }
+            let is_hi = col >= from && col < to;
+            if is_hi != buf_hi && !buf.is_empty() {
+                let st = if buf_hi { hi } else { style };
+                out.push(Span::styled(std::mem::take(&mut buf), st));
+            }
+            buf_hi = is_hi;
+            buf.push(ch);
+            col = col.saturating_add(cw);
+        }
+        if !buf.is_empty() {
+            let st = if buf_hi { hi } else { style };
+            out.push(Span::styled(buf, st));
+        }
+    }
+    Line::from(out).style(line_style)
+}
+
+fn draw_toast(f: &mut Frame, area: Rect, text: &str) {
+    if area.width < 6 || area.height == 0 {
+        return;
+    }
+    let label = format!(" {text} ");
+    let w = (label.chars().count() as u16)
+        .min(area.width.saturating_sub(2))
+        .max(1);
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(w).saturating_sub(1),
+        y: area.y + area.height.saturating_sub(1),
+        width: w,
+        height: 1,
+    };
+    let ok = text.starts_with("Copied") || text.starts_with("Wrote");
+    let style = if ok {
+        Style::default()
+            .fg(theme::BACKGROUND())
+            .bg(theme::SUCCESS())
+    } else {
+        Style::default()
+            .fg(theme::BACKGROUND())
+            .bg(theme::WARNING())
+    };
+    f.render_widget(Paragraph::new(Span::styled(label, style)), rect);
 }
 
 fn draw_quit_modal(f: &mut Frame, area: Rect) {
@@ -741,31 +857,47 @@ fn composer_lines(
     indent: &str,
     accent: Style,
     body: Style,
+    wrap_cols: u16,
 ) -> Vec<Line<'static>> {
-    let text_lines: Vec<&str> = draft.split('\n').collect();
+    let width = wrap_cols.max(1) as usize;
     let (cursor_line, cursor_col) = crate::ui::widgets::offset_to_line_col(draft, cursor);
     let mut lines = Vec::new();
-    for (li, line) in text_lines.iter().enumerate() {
-        let mut spans = Vec::new();
-        if li == 0 {
-            spans.push(Span::styled(prefix.to_string(), accent));
-        } else {
-            spans.push(Span::raw(indent.to_string()));
+    let mut cursor_row = 0usize;
+    for (li, line) in draft.split('\n').enumerate() {
+        let chunks = crate::ui::widgets::wrap_chunks(line, width);
+        let n = chunks.len();
+        for (ci, &(start, end)) in chunks.iter().enumerate() {
+            let piece = &line[start..end];
+            let mut spans = Vec::new();
+            if li == 0 && ci == 0 {
+                spans.push(Span::styled(prefix.to_string(), accent));
+            } else {
+                spans.push(Span::raw(indent.to_string()));
+            }
+            let cursor_here = li == cursor_line
+                && cursor_col >= start
+                && (cursor_col < end || (ci + 1 == n && cursor_col >= end));
+            if cursor_here {
+                cursor_row = lines.len();
+                let col = cursor_col.saturating_sub(start).min(piece.len());
+                let before = piece[..col].to_string();
+                let at = piece[col..].chars().next();
+                let after_start = col + at.map(|c| c.len_utf8()).unwrap_or(0);
+                let after = piece[after_start.min(piece.len())..].to_string();
+                spans.push(Span::styled(before, body));
+                let ch = at.map(|c| c.to_string()).unwrap_or_else(|| " ".into());
+                spans.push(Span::styled(ch, theme::cursor_block_style()));
+                spans.push(Span::styled(after, body));
+            } else {
+                spans.push(Span::styled(piece.to_string(), body));
+            }
+            lines.push(Line::from(spans));
         }
-        if li == cursor_line {
-            let col = cursor_col.min(line.len());
-            let before = line[..col].to_string();
-            let at = line[col..].chars().next();
-            let after_start = col + at.map(|c| c.len_utf8()).unwrap_or(0);
-            let after = line[after_start.min(line.len())..].to_string();
-            spans.push(Span::styled(before, body));
-            let ch = at.map(|c| c.to_string()).unwrap_or_else(|| " ".into());
-            spans.push(Span::styled(ch, theme::cursor_block_style()));
-            spans.push(Span::styled(after, body));
-        } else {
-            spans.push(Span::styled((*line).to_string(), body));
-        }
-        lines.push(Line::from(spans));
+    }
+    const MAX: usize = 6;
+    if lines.len() > MAX {
+        let start = (cursor_row + 1).saturating_sub(MAX).min(lines.len() - MAX);
+        lines = lines[start..start + MAX].to_vec();
     }
     lines
 }
@@ -834,6 +966,14 @@ mod tests {
         let top = visible(&lines).remove(0);
         assert!(top.contains('▍'), "{top}");
         assert!(!top.contains('…'), "{top}");
+    }
+
+    #[test]
+    fn highlight_covers_inclusive_cells() {
+        let line = Line::from("abcdef");
+        let hi = highlight_line(line, 0, (0, 1), (0, 3));
+        let vis = visible(&[hi]);
+        assert_eq!(vis[0], "abcdef");
     }
 
     #[test]

@@ -42,6 +42,10 @@ impl TalariaPaths {
     pub fn custom_file(&self) -> PathBuf {
         self.root.join("custom")
     }
+
+    pub fn last_copy_file(&self) -> PathBuf {
+        self.root.join("last-copy.txt")
+    }
 }
 
 impl Default for TalariaPaths {
@@ -156,6 +160,7 @@ mod tests {
             assert!(p.root.ends_with(".talaria"));
             assert!(p.log_file().ends_with("logs/talaria.log"));
             assert!(p.custom_file().ends_with("custom"));
+            assert!(p.last_copy_file().ends_with("last-copy.txt"));
         }
     }
 

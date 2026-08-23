@@ -1,8 +1,8 @@
 //! Chat screen. State lives here so child modules can touch private fields.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
@@ -88,6 +88,13 @@ pub struct Chat {
     pub(crate) transcript_area: ratatui::layout::Rect,
     /// (start_row, len, item_index) for clickable tool cards in the transcript.
     pub(crate) tool_hits: Vec<(u16, u16, usize)>,
+    /// Wrapped visual rows of the transcript as plain text (for drag-copy).
+    pub(crate) plain_rows: Vec<String>,
+    /// Inclusive visual `(row, col)` cells while highlighting.
+    pub(crate) selection: Option<((u16, u16), (u16, u16))>,
+    pub(crate) selecting: bool,
+    pub(crate) sel_moved: bool,
+    pub(crate) notice_expires: Option<Instant>,
     pub(crate) usage: UsageSnapshot,
     pub(crate) session_started: Option<Instant>,
     pub(crate) turn_started: Option<Instant>,
@@ -135,6 +142,11 @@ impl Chat {
             selected_tool: None,
             transcript_area: ratatui::layout::Rect::default(),
             tool_hits: Vec::new(),
+            plain_rows: Vec::new(),
+            selection: None,
+            selecting: false,
+            sel_moved: false,
+            notice_expires: None,
             usage: UsageSnapshot::default(),
             session_started: None,
             turn_started: None,
@@ -256,9 +268,9 @@ impl Chat {
                 self.mark_turn_started();
                 let name = name.unwrap_or_else(|| "tool".into());
                 let args = crate::logging::sanitize_tool_text(&name, args.as_deref().unwrap_or(""));
-                if let Some(i) = self.items.iter().rposition(|it| {
-                    matches!(it, TimelineItem::Tool { tool_id: id, .. } if id == &tool_id)
-                }) {
+                if let Some(i) = self.items.iter().rposition(
+                    |it| matches!(it, TimelineItem::Tool { tool_id: id, .. } if id == &tool_id),
+                ) {
                     if let TimelineItem::Tool {
                         name: n,
                         args: a,
@@ -1091,6 +1103,10 @@ impl Chat {
         self.items.clear();
         self.selected_tool = None;
         self.tool_hits.clear();
+        self.plain_rows.clear();
+        self.selection = None;
+        self.selecting = false;
+        self.sel_moved = false;
         self.streaming = false;
         self.thinking = false;
         self.follow = true;
@@ -1146,6 +1162,9 @@ impl Chat {
     }
 
     fn on_mouse(&mut self, mouse: MouseEvent, _area: Rect) -> Option<ScreenAction> {
+        if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+            return None;
+        }
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 self.follow = false;
@@ -1158,22 +1177,130 @@ impl Chat {
                 if self.overlay.is_open() || self.slash.is_active() {
                     return None;
                 }
-                let area = self.transcript_area;
-                if mouse.column < area.x
-                    || mouse.row < area.y
-                    || mouse.column >= area.x.saturating_add(area.width)
-                    || mouse.row >= area.y.saturating_add(area.height)
-                {
+                let Some(pos) = self.mouse_in_transcript(&mouse) else {
+                    self.selection = None;
+                    self.selecting = false;
+                    return None;
+                };
+                self.selection = Some((pos, pos));
+                self.selecting = true;
+                self.sel_moved = false;
+                self.follow = false;
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if !self.selecting {
                     return None;
                 }
-                let visual = self.scroll.saturating_add(mouse.row.saturating_sub(area.y));
-                if let Some(i) = self.tool_at_visual_row(visual) {
-                    self.toggle_tool_at(i);
+                let pos = self.clamp_mouse_to_transcript(&mouse);
+                if let Some((_, end)) = self.selection.as_mut() {
+                    if pos != *end {
+                        self.sel_moved = true;
+                    }
+                    *end = pos;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if !self.selecting {
+                    return None;
+                }
+                self.selecting = false;
+                if self.sel_moved {
+                    if let Some(text) = self.selection_text() {
+                        if !text.is_empty() {
+                            self.apply_copy(&text);
+                        }
+                    }
+                } else {
+                    self.selection = None;
+                    if let Some((row, _)) = self.mouse_in_transcript(&mouse) {
+                        if let Some(i) = self.tool_at_visual_row(row) {
+                            self.toggle_tool_at(i);
+                        }
+                    }
                 }
             }
             _ => {}
         }
         None
+    }
+
+    fn mouse_in_transcript(&self, mouse: &MouseEvent) -> Option<(u16, u16)> {
+        let area = self.transcript_area;
+        if area.width == 0 || area.height == 0 {
+            return None;
+        }
+        if mouse.column < area.x
+            || mouse.row < area.y
+            || mouse.column >= area.x.saturating_add(area.width)
+            || mouse.row >= area.y.saturating_add(area.height)
+        {
+            return None;
+        }
+        Some(self.visual_pos(mouse.column, mouse.row, area))
+    }
+
+    fn clamp_mouse_to_transcript(&self, mouse: &MouseEvent) -> (u16, u16) {
+        let area = self.transcript_area;
+        let col = mouse
+            .column
+            .clamp(area.x, area.x.saturating_add(area.width.saturating_sub(1)));
+        let row = mouse
+            .row
+            .clamp(area.y, area.y.saturating_add(area.height.saturating_sub(1)));
+        self.visual_pos(col, row, area)
+    }
+
+    fn visual_pos(&self, column: u16, row: u16, area: ratatui::layout::Rect) -> (u16, u16) {
+        let vis_row = self.scroll.saturating_add(row.saturating_sub(area.y));
+        let vis_col = column.saturating_sub(area.x);
+        (vis_row, vis_col)
+    }
+
+    fn selection_text(&self) -> Option<String> {
+        let (a, b) = self.selection?;
+        Some(crate::clipboard::extract_selection(&self.plain_rows, a, b))
+    }
+
+    pub(crate) fn apply_copy(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let result = crate::clipboard::copy_text(text);
+        self.set_toast(result.toast());
+    }
+
+    pub(crate) fn copy_assistant(&mut self, rest: &str) {
+        let args = crate::clipboard::parse_copy_args(rest);
+        let texts = assistant_texts(&self.items);
+        if texts.is_empty() {
+            self.set_toast("nothing to copy");
+            return;
+        }
+        let Some(text) = texts.iter().rev().nth(args.n.saturating_sub(1)).copied() else {
+            self.set_toast(format!("only {} responses", texts.len()));
+            return;
+        };
+        let text = text.to_string();
+        match args.path {
+            Some(path) => match crate::clipboard::copy_to_file(&text, &path) {
+                Ok(result) => self.set_toast(result.toast()),
+                Err(e) => self.set_toast(e),
+            },
+            None => self.apply_copy(&text),
+        }
+    }
+
+    pub(crate) fn set_toast(&mut self, msg: impl Into<String>) {
+        self.notice = Some(msg.into());
+        self.notice_expires = Some(Instant::now() + Duration::from_millis(2500));
+    }
+
+    pub(crate) fn clear_selection(&mut self) -> bool {
+        let had = self.selection.is_some() || self.selecting;
+        self.selection = None;
+        self.selecting = false;
+        self.sel_moved = false;
+        had
     }
 
     fn tick_screen(&mut self) {
@@ -1381,6 +1508,7 @@ fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
         ("trees", "saved spawn trees"),
         ("usage", "token / cost for this session"),
         ("custom", "toggle status bar and key hints"),
+        ("copy", "copy last response  (/copy 2  /copy file)"),
         ("help", "keyboard help"),
     ] {
         if !items.iter().any(|c| c.name == name) {
@@ -1409,6 +1537,16 @@ fn rewind_turns_from_timeline(items: &[TimelineItem]) -> Vec<crate::session::Rew
         }
     }
     turns
+}
+
+fn assistant_texts(items: &[TimelineItem]) -> Vec<&str> {
+    items
+        .iter()
+        .filter_map(|it| match it {
+            TimelineItem::Assistant { text, .. } if !text.is_empty() => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn truncate_notice(s: &str) -> String {
@@ -1683,6 +1821,33 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn nth_latest_assistant_skips_empty() {
+        let items = vec![
+            TimelineItem::User {
+                text: "hi".into(),
+                row_id: Some(1),
+            },
+            TimelineItem::Assistant {
+                text: "first".into(),
+                streaming: false,
+            },
+            TimelineItem::Assistant {
+                text: String::new(),
+                streaming: true,
+            },
+            TimelineItem::Assistant {
+                text: "second".into(),
+                streaming: false,
+            },
+        ];
+        let texts = assistant_texts(&items);
+        assert_eq!(texts, vec!["first", "second"]);
+        assert_eq!(texts.iter().rev().nth(0).copied(), Some("second"));
+        assert_eq!(texts.iter().rev().nth(1).copied(), Some("first"));
+        assert_eq!(texts.iter().rev().nth(2).copied(), None);
     }
 }
 

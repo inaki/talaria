@@ -848,12 +848,10 @@ pub fn draw_overlay(
             paint_modal(f, area, " sessions ", lines, 18);
         }
         Overlay::Help => {
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    format!("Talaria Client  v{}", env!("CARGO_PKG_VERSION")),
-                    theme::accent(),
-                )),
-            ];
+            let mut lines = vec![Line::from(Span::styled(
+                format!("Talaria Client  v{}", env!("CARGO_PKG_VERSION")),
+                theme::accent(),
+            ))];
             if let Some(v) = hermes {
                 lines.push(Line::from(Span::styled(
                     format!("Hermes Agent    v{v}"),
@@ -891,7 +889,10 @@ pub fn draw_overlay(
                 Line::from("/skills  /plugins     install / toggle"),
                 Line::from("/mcp                  add / remove MCP servers"),
                 Line::from("/skin                 github / default / ares / …"),
+                Line::from("/copy  /copy N    last response (or Nth-latest)"),
+                Line::from("/copy file        write last response to a file"),
                 Line::from("/clear  /quit"),
+                Line::from("drag             highlight transcript to copy"),
                 Line::from("Ctrl+O / click   expand a tool card"),
                 Line::from("Ctrl+V           paste clipboard image (gateway)"),
                 Line::from(""),
@@ -901,7 +902,7 @@ pub fn draw_overlay(
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ]);
-            let h = 24 + u16::from(update.is_some()) + u16::from(hermes.is_some());
+            let h = 27 + u16::from(update.is_some()) + u16::from(hermes.is_some());
             paint_modal(f, area, " help ", lines, h);
         }
         Overlay::Agents {

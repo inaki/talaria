@@ -206,11 +206,10 @@ impl TextComposer {
         self.cursor_pos = self.draft.len();
     }
 
-    /// Content rows inside the prompt box. Empty / one line → 1; Shift+Enter
-    /// grows this up to `MAX_VISUAL_LINES` (herald / Grok Build behaviour).
-    pub fn visual_lines(&self) -> u16 {
-        let n = self.draft.split('\n').count().max(1) as u16;
-        n.min(MAX_VISUAL_LINES)
+    /// Content rows inside the prompt box, including soft-wrap at `width`.
+    /// Hard newlines (Shift+Enter) and overflow both grow up to `MAX_VISUAL_LINES`.
+    pub fn visual_lines(&self, width: u16) -> u16 {
+        visual_line_count(&self.draft, width).min(MAX_VISUAL_LINES)
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ComposerAction {
@@ -283,6 +282,37 @@ impl TextComposer {
     }
 }
 
+/// Byte ranges `[start, end)` of `s` split to fit `width` display columns.
+pub fn wrap_chunks(s: &str, width: usize) -> Vec<(usize, usize)> {
+    if s.is_empty() {
+        return vec![(0, 0)];
+    }
+    let width = width.max(1);
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut col = 0;
+    for (i, ch) in s.char_indices() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if col + cw > width && i > start {
+            out.push((start, i));
+            start = i;
+            col = 0;
+        }
+        col = col.saturating_add(cw);
+    }
+    out.push((start, s.len()));
+    out
+}
+
+pub fn visual_line_count(text: &str, width: u16) -> u16 {
+    let w = (width as usize).max(1);
+    let mut n = 0u16;
+    for line in text.split('\n') {
+        n = n.saturating_add(wrap_chunks(line, w).len() as u16);
+    }
+    n.max(1)
+}
+
 pub fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut rem = offset;
@@ -331,7 +361,7 @@ mod tests {
         c.insert_str("ab");
         c.handle_key(shift_enter);
         assert_eq!(c.draft, "ab\n");
-        assert_eq!(c.visual_lines(), 2);
+        assert_eq!(c.visual_lines(80), 2);
         c.insert_str("cd");
         assert_eq!(offset_to_line_col(&c.draft, c.cursor_pos), (1, 2));
         c.move_line(-1);
@@ -343,15 +373,23 @@ mod tests {
     #[test]
     fn visual_lines_start_at_one_and_grow_with_newlines() {
         let mut c = TextComposer::default();
-        assert_eq!(c.visual_lines(), 1);
+        assert_eq!(c.visual_lines(80), 1);
         c.insert_str("hello");
-        assert_eq!(c.visual_lines(), 1);
+        assert_eq!(c.visual_lines(80), 1);
         c.insert_char('\n');
-        assert_eq!(c.visual_lines(), 2);
+        assert_eq!(c.visual_lines(80), 2);
         for _ in 0..10 {
             c.insert_char('\n');
         }
-        assert_eq!(c.visual_lines(), MAX_VISUAL_LINES);
+        assert_eq!(c.visual_lines(80), MAX_VISUAL_LINES);
+    }
+
+    #[test]
+    fn visual_lines_wrap_a_long_line() {
+        let mut c = TextComposer::default();
+        c.insert_str(&"x".repeat(25));
+        assert_eq!(c.visual_lines(10), 3);
+        assert_eq!(wrap_chunks("abcdefghij", 4), vec![(0, 4), (4, 8), (8, 10)]);
     }
 
     #[test]
