@@ -125,11 +125,10 @@ main() {
   echo
   "${BIN_DIR}/${BIN_NAME}" --version || true
   echo
-  echo "Talaria is an unofficial TUI host for Hermes Agent (Nous Research)."
-  echo "Live mode uses the same ~/.hermes as hermes --tui (models, keys, sessions)."
-  echo "Quit hermes --tui before starting talaria (and the reverse)."
-  echo "If tui_gateway is missing:"
-  echo "  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+  echo "Talaria is an unofficial TUI client for Hermes Agent (Nous Research)."
+  echo "Live mode uses ~/.hermes (shared). Quit hermes --tui before starting talaria."
+  echo "If live mode cannot import tui_gateway, install Hermes Agent first:"
+  echo "  https://hermes-agent.nousresearch.com"
 }
 
 main "$@"
