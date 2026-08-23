@@ -339,21 +339,21 @@ fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'st
 fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
     let mut lines: Vec<Line> = Vec::new();
     if wide {
-        let mut title = String::from("Talaria Client");
-        if !chat.version.is_empty() {
-            title.push_str(&format!(" v{}", chat.version));
-        }
-        if !chat.release_date.is_empty() {
-            title.push_str(&format!(" ({})", chat.release_date));
-        }
         lines.push(Line::from(Span::styled(
-            title,
+            format!("Talaria Client v{}", env!("CARGO_PKG_VERSION")),
             theme::accent().add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(Span::styled(
             "Native Rust TUI for Hermes Agent",
             theme::dim(),
         )));
+        if !chat.version.is_empty() {
+            let mut hermes = format!("Hermes Agent v{}", chat.version);
+            if !chat.release_date.is_empty() {
+                hermes.push_str(&format!(" ({})", chat.release_date));
+            }
+            lines.push(Line::from(Span::styled(hermes, theme::dim())));
+        }
         if let Some(v) = &chat.update_available {
             lines.push(Line::from(Span::styled(
                 crate::update::notice_line(v),

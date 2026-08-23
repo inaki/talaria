@@ -2,7 +2,7 @@
 # Install a prebuilt talaria binary from GitHub Releases.
 #
 #   curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
-#   curl -fsSL ... | bash -s -- v0.1.1
+#   curl -fsSL ... | bash -s -- v0.1.2
 #
 # Does not install Hermes Agent. Live mode still needs ~/.hermes (shared).
 # Talaria is an unofficial host — see NOTICE.md.
@@ -86,7 +86,7 @@ main() {
   local target tag version asset url sums tmp dir expected got
   target="$(detect_target)"
   tag="$(resolve_tag "$VERSION")"
-  [ -n "$tag" ] || die "could not resolve release tag (set TALARIA_VERSION or pass v0.1.1)"
+  [ -n "$tag" ] || die "could not resolve release tag (set TALARIA_VERSION or pass v0.1.2)"
   version="${tag#v}"
   asset="${BIN_NAME}-${version}-${target}.tar.gz"
   url="https://github.com/${REPO}/releases/download/${tag}/${asset}"

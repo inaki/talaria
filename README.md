@@ -50,7 +50,7 @@ curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 # then: hermes setup   # Nous Portal is the easy path
 ```
 
-**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`. Latest: **[v0.1.1](https://github.com/inaki/talaria/releases/tag/v0.1.1)**.
+**2. This TUI** — both tools share `~/.hermes` (models, keys, sessions). This binary only writes `~/.talaria/`. Latest: **[v0.1.2](https://github.com/inaki/talaria/releases/tag/v0.1.2)**.
 
 ```bash
 # Homebrew (macOS; builds from source)
@@ -58,7 +58,7 @@ brew install inaki/talaria/talaria
 
 # curl (GitHub Releases: macOS Apple silicon/Intel, Linux x86_64/arm64)
 curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
-# pin:  curl … | bash -s -- v0.1.1
+# pin:  curl … | bash -s -- v0.1.2
 ```
 
 Then `talaria`. Discovery finds `~/.hermes/hermes-agent/venv/bin/python`. Override with `HERMES_PYTHON`.
