@@ -57,9 +57,9 @@ fn colorize(art: &[&str], gradient: &[u8]) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// `TALARIA` wordmark: live ANSI Shadow, else a plain title.
+/// `TALARIA - AGENT` wordmark: live ANSI Shadow, else a plain title.
 pub fn logo_lines() -> Vec<Line<'static>> {
-    let generated = big_text::render_ansi_shadow("TALARIA");
+    let generated = big_text::render_ansi_shadow("TALARIA - AGENT");
     if generated.len() >= 5 {
         let g = LOGO_GRADIENT;
         return generated
@@ -71,7 +71,7 @@ pub fn logo_lines() -> Vec<Line<'static>> {
             })
             .collect();
     }
-    vec![Line::from(Span::styled("TALARIA", tone(0)))]
+    vec![Line::from(Span::styled("TALARIA - AGENT", tone(0)))]
 }
 
 pub fn caduceus_lines() -> Vec<Line<'static>> {
@@ -116,10 +116,10 @@ mod tests {
 
     #[test]
     fn logo_is_talaria() {
-        let generated = big_text::render_ansi_shadow("TALARIA");
+        let generated = big_text::render_ansi_shadow("TALARIA - AGENT");
         assert!(
             generated.len() >= 5,
-            "expected a multi-row TALARIA wordmark, got {generated:?}"
+            "expected a multi-row TALARIA - AGENT wordmark, got {generated:?}"
         );
         let lines = logo_lines();
         assert!(!lines.is_empty());

@@ -276,7 +276,7 @@ fn draw_splash(chat: &Chat, f: &mut Frame, area: Rect) {
     logo_block.push(Line::from(""));
 
     let logo_h = logo_block.len() as u16;
-    let (banner_area, panel_area) = if area.width + 2 >= logo_w && area.height > logo_h + 10 {
+    let (banner_area, panel_area) = if area.width >= logo_w && area.height > logo_h + 10 {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(logo_h), Constraint::Min(8)])

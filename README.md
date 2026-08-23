@@ -1,6 +1,5 @@
 <img width="800" height="536" alt="CleanShot 2026-08-23 at 13 12 13" src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b" />
 
-
 # Talaria Agent
 
 **Unofficial TUI host for [Hermes Agent](https://github.com/NousResearch/hermes-agent).** Native [ratatui](https://ratatui.rs), not a Nous Research product.
@@ -95,7 +94,7 @@ cargo run --example dump_gateway -- --prompt hi  # calls your configured model
 
 | | |
 |---|---|
-| **Splash** | ANSI Shadow `TALARIA` wordmark, Braille caduceus, live tools/skills from `session.info` |
+| **Splash** | ANSI Shadow `TALARIA - AGENT` wordmark, Braille caduceus, live tools/skills from `session.info` |
 | **Chat** | Streaming deltas, markdown on completed turns, thinking blocks |
 | **Tools** | Collapsed cards; **Ctrl+O** expands args/result (secrets redacted) |
 | **Approvals** | Approval / clarify / sudo / secret overlays |
