@@ -94,7 +94,8 @@ main() {
 
   cyan "→ installing ${BIN_NAME} ${tag} (${target})"
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  # Expand $tmp now: it is `local` and gone when EXIT fires after main returns.
+  trap "rm -rf '$(printf '%s' "$tmp")'" EXIT
 
   curl -fsSL "$url" -o "${tmp}/${asset}" || die "download failed: $url"
   if curl -fsSL "$sums" -o "${tmp}/SHA256SUMS"; then
