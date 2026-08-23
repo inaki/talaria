@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Talaria Agent — unofficial TUI host for Hermes Agent</title>
-  <meta name="description" content="Talaria is an unofficial native ratatui TUI for Hermes Agent. Not a Nous Research product. MIT licensed.">
+  <title>Talaria Client — native Rust TUI for Hermes Agent</title>
+  <meta name="description" content="Talaria Client is a native Rust TUI for Hermes Agent. Unofficial, MIT licensed, not a Nous Research product.">
   <meta name="color-scheme" content="dark">
   <link rel="canonical" href="https://inaki.github.io/talaria/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -141,9 +141,11 @@
     a { color: var(--gold); }
     a:hover { color: var(--text); }
     .shot {
-      margin: 1.75rem 0;
-      border: 1px solid var(--line);
-      border-radius: 10px;
+      margin: 0 0 2rem;
+      width: 100%;
+      border: 0;
+      border-block: 1px solid var(--line);
+      border-radius: 0;
       overflow: hidden;
       background: #11111f;
     }
@@ -227,12 +229,12 @@
 <body>
   <header class="hero">
     <div class="wrap hero-inner">
-      <p class="kicker">Unofficial TUI host for Hermes Agent</p>
+      <p class="kicker">Unofficial · MIT · not a Nous Research product</p>
       <h1>
         <span class="wm">TALARIA</span>
-        <span class="wm wm-agent">- AGENT</span>
+        <span class="wm wm-agent">- CLIENT</span>
       </h1>
-      <p class="lede">Native <strong>ratatui</strong> host for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
+      <p class="lede">Native Rust TUI for <strong>Hermes Agent</strong>. The UI is Rust; the agent stays Python. Binary is <code>talaria</code>, never <code>hermes</code>.</p>
       <nav>
         <a href="https://github.com/inaki/talaria">GitHub</a>
         <a href="https://github.com/inaki/homebrew-talaria">Homebrew</a>
@@ -243,13 +245,13 @@
     </div>
   </header>
 
-  <main class="wrap">
-    <figure class="shot">
-      <img
-        src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
-        alt="Talaria Agent splash: TALARIA - AGENT wordmark, caduceus, and Hermes tools panel">
-    </figure>
+  <figure class="shot">
+    <img
+      src="https://github.com/user-attachments/assets/a763fadb-53be-4eb5-b2f7-5f98a5e00f3b"
+      alt="Talaria Client splash: TALARIA - CLIENT wordmark, caduceus, and Hermes tools panel">
+  </figure>
 
+  <main class="wrap">
     <h2>Install</h2>
     <p class="note">Needs a working Hermes Agent first (<code>hermes --tui</code>). Quit that TUI before starting Talaria — they share <code>~/.hermes</code>.</p>
     <p class="install-label">Homebrew <span>macOS · builds from source</span></p>
