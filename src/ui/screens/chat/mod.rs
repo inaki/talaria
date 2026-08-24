@@ -263,18 +263,21 @@ impl Chat {
                 tool_id,
                 name,
                 args,
+                preview,
             } => {
                 self.streaming = true;
                 self.mark_turn_started();
                 let name = name.unwrap_or_else(|| "tool".into());
                 let args = crate::logging::sanitize_tool_text(&name, args.as_deref().unwrap_or(""));
+                let preview =
+                    crate::logging::sanitize_tool_text(&name, preview.as_deref().unwrap_or(""));
                 if let Some(i) = self.items.iter().rposition(
                     |it| matches!(it, TimelineItem::Tool { tool_id: id, .. } if id == &tool_id),
                 ) {
                     if let TimelineItem::Tool {
                         name: n,
                         args: a,
-                        preview,
+                        preview: p,
                         result,
                         error,
                         done,
@@ -283,7 +286,7 @@ impl Chat {
                     {
                         *n = name;
                         *a = args;
-                        preview.clear();
+                        *p = preview;
                         result.clear();
                         *error = None;
                         *done = false;
@@ -293,7 +296,7 @@ impl Chat {
                         tool_id,
                         name,
                         args,
-                        preview: String::new(),
+                        preview,
                         result: String::new(),
                         error: None,
                         done: false,
@@ -1619,6 +1622,7 @@ mod tests {
             tool_id: "t1".into(),
             name: Some("session_search".into()),
             args: None,
+            preview: None,
         });
         chat.apply_event(SessionEvent::ToolComplete {
             tool_id: "t1".into(),
@@ -1633,6 +1637,7 @@ mod tests {
             tool_id: "t1".into(),
             name: Some("session_search".into()),
             args: None,
+            preview: None,
         });
         let thinks: Vec<_> = chat
             .items

@@ -71,6 +71,42 @@ fn clean(s: &str) -> String {
     crate::logging::strip_controls(s)
 }
 
+/// Gateway `args` / `result` are often JSON objects, not strings.
+fn json_display(v: Option<&Value>) -> Option<String> {
+    let v = v?;
+    let s = match v {
+        Value::Null => return None,
+        Value::String(s) => clean(s),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Object(map) => {
+            for key in [
+                "command", "cmd", "output", "stdout", "text", "path", "query", "url",
+            ] {
+                if let Some(Value::String(s)) = map.get(key) {
+                    if map.len() == 1 {
+                        return Some(clean(s)).filter(|s| !s.is_empty());
+                    }
+                    return Some(clean(&format!("{key}: {s}"))).filter(|s| !s.is_empty());
+                }
+            }
+            serde_json::to_string(v)
+                .ok()
+                .map(|s| clean(&s))
+                .unwrap_or_default()
+        }
+        Value::Array(_) => serde_json::to_string(v)
+            .ok()
+            .map(|s| clean(&s))
+            .unwrap_or_default(),
+    };
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 pub(crate) fn map_gateway_event(event: GatewayEvent) -> SessionEvent {
     match event {
         GatewayEvent::Event(ev) => map_wire(ev),
@@ -143,23 +179,35 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                     .map(clean),
             }
         }
-        "tool.start" => SessionEvent::ToolStart {
-            tool_id: payload
-                .get("tool_id")
-                .or_else(|| payload.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("tool")
-                .to_string(),
-            name: payload
+        "tool.start" => {
+            let name = payload
                 .get("name")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            args: payload
-                .get("args_text")
-                .or_else(|| payload.get("args"))
+                .map(|s| s.to_string());
+            let preview = payload
+                .get("context")
                 .and_then(|v| v.as_str())
-                .map(clean),
-        },
+                .map(clean)
+                .filter(|s| !s.is_empty());
+            let args = json_display(payload.get("args_text").or_else(|| payload.get("args")));
+            if name.as_deref() == Some("_thinking") {
+                SessionEvent::Thinking {
+                    text: preview.or(args).unwrap_or_default(),
+                }
+            } else {
+                SessionEvent::ToolStart {
+                    tool_id: payload
+                        .get("tool_id")
+                        .or_else(|| payload.get("id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("tool")
+                        .to_string(),
+                    name,
+                    args,
+                    preview,
+                }
+            }
+        }
         "tool.progress" => SessionEvent::ToolProgress {
             tool_id: payload
                 .get("tool_id")
@@ -187,11 +235,12 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .get("name")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            result: payload
-                .get("result_text")
-                .or_else(|| payload.get("summary"))
-                .and_then(|v| v.as_str())
-                .map(clean),
+            result: json_display(
+                payload
+                    .get("result_text")
+                    .or_else(|| payload.get("summary"))
+                    .or_else(|| payload.get("result")),
+            ),
             error: payload.get("error").and_then(|v| v.as_str()).map(clean),
         },
         "approval.request" => SessionEvent::ApprovalRequest {
@@ -1086,6 +1135,69 @@ mod tests {
         }));
         assert_eq!(ids, Some(vec![Some(7), None, Some(9)]));
         assert!(parse_survivor_user_row_ids(&json!({"status": "streaming"})).is_none());
+    }
+
+    #[test]
+    fn tool_start_reads_json_args_and_context() {
+        let ev = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "tool.start".into(),
+            payload: json!({
+                "tool_id": "tool-1",
+                "name": "terminal",
+                "context": "ls",
+                "args": { "command": "ls" }
+            }),
+            session_id: None,
+        }));
+        match ev {
+            SessionEvent::ToolStart {
+                tool_id,
+                name,
+                args,
+                preview,
+            } => {
+                assert_eq!(tool_id, "tool-1");
+                assert_eq!(name.as_deref(), Some("terminal"));
+                assert_eq!(args.as_deref(), Some("ls"));
+                assert_eq!(preview.as_deref(), Some("ls"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_complete_reads_json_result() {
+        let ev = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "tool.complete".into(),
+            payload: json!({
+                "tool_id": "tool-1",
+                "name": "terminal",
+                "result": { "output": "ok" }
+            }),
+            session_id: None,
+        }));
+        match ev {
+            SessionEvent::ToolComplete { result, .. } => {
+                assert_eq!(result.as_deref(), Some("ok"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn thinking_tool_start_is_not_a_card() {
+        let ev = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "tool.start".into(),
+            payload: json!({
+                "name": "_thinking",
+                "context": "pondering"
+            }),
+            session_id: None,
+        }));
+        match ev {
+            SessionEvent::Thinking { text } => assert_eq!(text, "pondering"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

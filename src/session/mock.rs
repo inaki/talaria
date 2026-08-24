@@ -609,6 +609,7 @@ async fn play_scenario(scenario: MockScenario, text: &str, ev_tx: &mpsc::Sender<
                     tool_id: "t1".into(),
                     name: Some("web_search".into()),
                     args: Some("query=\"hermes tui_gateway\"".into()),
+                    preview: None,
                 })
                 .await;
             tokio::time::sleep(Duration::from_millis(80)).await;

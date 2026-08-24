@@ -173,11 +173,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
             } => {
                 let state = if *done { "done" } else { "running" };
                 if !*expanded {
-                    let hint = if result.is_empty() {
-                        preview.as_str()
-                    } else {
-                        result.lines().next().unwrap_or("")
-                    };
+                    let hint = first_tool_hint(result, preview, args);
                     let selected = chat.selected_tool == Some(i);
                     lines.push(tool_chip(name, state, hint, panel_width(col_w)));
                     lines.push(Line::from(Span::styled(
@@ -521,6 +517,17 @@ fn paint_card(line: Line<'static>, fill: bool) -> Line<'static> {
     } else {
         line
     }
+}
+
+fn first_tool_hint<'a>(result: &'a str, preview: &'a str, args: &'a str) -> &'a str {
+    first_nonempty_line(result)
+        .or_else(|| first_nonempty_line(preview))
+        .or_else(|| first_nonempty_line(args))
+        .unwrap_or("")
+}
+
+fn first_nonempty_line(s: &str) -> Option<&str> {
+    s.lines().map(str::trim).find(|l| !l.is_empty())
 }
 
 fn panel_width(col_w: u16) -> usize {

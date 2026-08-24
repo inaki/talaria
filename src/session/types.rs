@@ -149,6 +149,8 @@ pub enum SessionEvent {
         tool_id: String,
         name: Option<String>,
         args: Option<String>,
+        /// Gateway `context` — short chip label (command preview).
+        preview: Option<String>,
     },
     ToolProgress {
         tool_id: Option<String>,
