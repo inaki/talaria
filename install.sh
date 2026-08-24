@@ -17,6 +17,7 @@ VERSION="${1:-${TALARIA_VERSION:-${HERMES_RUST_VERSION:-latest}}}"
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 cyan() { printf '\033[36m%s\033[0m\n' "$*"; }
+dim() { printf '\033[2m%s\033[0m\n' "$*"; }
 
 die() {
   red "error: $*"
@@ -136,14 +137,33 @@ main() {
   esac
 
   echo
-  echo "Command name is:  talaria"
-  echo "Run it now with:  ${BIN_DIR}/${BIN_NAME} --version"
-  "${BIN_DIR}/${BIN_NAME}" --version || true
+  print_done "$tag" "${BIN_DIR}/${BIN_NAME}"
+}
+
+print_done() {
+  local tag="$1"
+  local bin="$2"
+  green "✦  talaria ${tag}  ·  installed"
   echo
-  echo "Talaria is an unofficial TUI client for Hermes Agent (Nous Research)."
-  echo "Live mode uses ~/.hermes (shared). Quit hermes --tui before starting talaria."
-  echo "If live mode cannot import tui_gateway, install Hermes Agent first:"
-  echo "  https://hermes-agent.nousresearch.com"
+  printf '   %s\n' "$bin"
+  if ver="$("$bin" --version 2>/dev/null)"; then
+    printf '   %s\n' "$ver"
+  fi
+  echo
+  cyan "   Next"
+  echo "     talaria"
+  echo
+  cyan "   Hermes Agent"
+  echo "     Live chat shares ~/.hermes with official Hermes"
+  echo "     (models, keys, sessions). This step only installed the UI."
+  echo
+  echo "     Need Hermes?"
+  echo "       curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+  echo "       hermes setup"
+  echo
+  echo "     Already in hermes --tui? Quit that session first."
+  echo
+  dim "   unofficial client · not a Nous Research product"
 }
 
 main "$@"
