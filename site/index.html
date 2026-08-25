@@ -217,10 +217,45 @@
     li { margin: 0.3rem 0; }
     footer {
       margin-top: 3rem;
-      padding-top: 1.25rem;
+      padding-top: 1.6rem;
       border-top: 1px solid var(--line);
+      text-align: center;
+    }
+    .credit {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      letter-spacing: 0.04em;
+    }
+    .credit a {
+      color: var(--gold);
+      text-decoration: none;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .credit a:hover {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 0.18em;
+    }
+    .heart {
+      display: inline-block;
+      color: #ff5a7a;
+      margin: 0 0.18em;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.18); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .heart { animation: none; }
+    }
+    .legal {
+      margin: 0.85rem 0 0;
       color: var(--dim);
-      font-size: 0.85rem;
+      font-size: 0.78rem;
+      line-height: 1.45;
     }
   </style>
 </head>
@@ -280,9 +315,15 @@ export PATH="$HOME/.local/bin:$PATH"
     </ul>
 
     <footer>
-      Talaria is independent of Hermes Agent by
-      <a href="https://nousresearch.com">Nous Research</a>.
-      It is not affiliated with, endorsed by, or a product of Nous Research.
+      <p class="credit">
+        made with <span class="heart" role="img" aria-label="love">♥</span> by
+        <a href="https://www.inaki.to" rel="noopener noreferrer">inaki.to</a>
+      </p>
+      <p class="legal">
+        Talaria is independent of Hermes Agent by
+        <a href="https://nousresearch.com">Nous Research</a>.
+        It is not affiliated with, endorsed by, or a product of Nous Research.
+      </p>
     </footer>
   </main>
   <script>
