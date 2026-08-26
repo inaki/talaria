@@ -147,9 +147,15 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
                 session.send(SessionCommand::ListActive);
             }
         }
-        ScreenAction::AttachImage { path } => {
+        ScreenAction::AttachImages { items } => {
             if let Some(session) = &app.session {
-                session.send(SessionCommand::AttachImage { path });
+                for a in items {
+                    let label = a.label();
+                    session.send(SessionCommand::AttachImage {
+                        path: a.path,
+                        label,
+                    });
+                }
             }
         }
         ScreenAction::ClipboardPaste => {
@@ -167,6 +173,11 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
         ScreenAction::LoadSpawnTree { path } => {
             if let Some(session) = &app.session {
                 session.send(SessionCommand::LoadSpawnTree { path });
+            }
+        }
+        ScreenAction::SaveSpawnTree => {
+            if let Some(session) = &app.session {
+                session.send(SessionCommand::SaveSpawnTree);
             }
         }
         ScreenAction::OpenRewind => {

@@ -30,6 +30,22 @@ pub fn is_ctrl_n(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
+pub fn is_ctrl_k(key: &KeyEvent) -> bool {
+    matches!(
+        key.code,
+        KeyCode::Char('k') | KeyCode::Char('p')
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::SUPER)
+    )
+}
+
+/// Queue a follow-up (not newline, not submit/steer).
+pub fn is_ctrl_enter(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL))
+        && !key.modifiers.contains(KeyModifiers::SHIFT)
+        && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
 pub fn is_ctrl_g(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL))
 }
@@ -86,6 +102,29 @@ mod tests {
         assert!(!is_newline_key(&KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE
+        )));
+    }
+
+    #[test]
+    fn ctrl_enter_is_queue_not_newline() {
+        let k = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert!(is_ctrl_enter(&k));
+        assert!(!is_newline_key(&k));
+        assert!(!is_ctrl_enter(&KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::SHIFT
+        )));
+    }
+
+    #[test]
+    fn ctrl_k_and_ctrl_p_open_palette() {
+        assert!(is_ctrl_k(&KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(is_ctrl_k(&KeyEvent::new(
+            KeyCode::Char('p'),
+            KeyModifiers::CONTROL
         )));
     }
 }

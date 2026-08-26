@@ -9,11 +9,12 @@ use tokio::sync::mpsc;
 use crate::gateway::{GatewayClient, GatewayError};
 
 use super::parse::{
-    map_gateway_event, ordinary_submit_params, parse_active_list, parse_catalog,
-    parse_command_result, parse_config_set, parse_delegation, parse_mcp_catalog, parse_mcp_servers,
-    parse_model_disconnected, parse_model_key_saved, parse_model_options, parse_plugins_list,
-    parse_saved_list, parse_skills_list, parse_spawn_trees, parse_survivor_user_row_ids,
-    parse_transcript_messages, parse_usage, resize_params, rewind_submit_params,
+    map_gateway_event, match_saved_session, ordinary_submit_params, parse_active_list,
+    parse_catalog, parse_command_result, parse_config_set, parse_delegation, parse_mcp_catalog,
+    parse_mcp_servers, parse_model_disconnected, parse_model_key_saved, parse_model_options,
+    parse_plugins_list, parse_saved_list, parse_saved_sessions, parse_skills_list,
+    parse_spawn_trees, parse_survivor_user_row_ids, parse_transcript_messages, parse_usage,
+    resize_params, rewind_submit_params,
 };
 use super::{SessionApi, SessionCommand, SessionEvent};
 
@@ -118,6 +119,12 @@ async fn handle_live_cmd(
         SessionCommand::Create { cwd, cols } => {
             create_session(client, session_id, cwd, cols, ev_tx).await
         }
+        SessionCommand::ResumeLatest { cwd, cols } => {
+            resume_or_create(client, session_id, None, cwd, cols, ev_tx).await
+        }
+        SessionCommand::ResumeQuery { query, cwd, cols } => {
+            resume_or_create(client, session_id, Some(query), cwd, cols, ev_tx).await
+        }
         SessionCommand::Submit { text } => {
             if !*agent_ready && tokio::time::Instant::now() < ready_deadline {
                 *queued_submit = Some(text);
@@ -192,14 +199,14 @@ async fn handle_live_cmd(
             let result = client
                 .request("session.resume", json!({ "session_id": sid, "cols": cols }))
                 .await?;
-            apply_switch_result(session_id, &result, ev_tx).await;
+            apply_switch_result(client, session_id, &result, ev_tx).await;
             Ok(())
         }
         SessionCommand::Activate { session_id: sid } => {
             let result = client
                 .request("session.activate", json!({ "session_id": sid }))
                 .await?;
-            apply_switch_result(session_id, &result, ev_tx).await;
+            apply_switch_result(client, session_id, &result, ev_tx).await;
             Ok(())
         }
         SessionCommand::Dispatch { command } => {
@@ -307,7 +314,7 @@ async fn handle_live_cmd(
                 params["title"] = json!(title);
             }
             let result = client.request("session.branch", params).await?;
-            apply_switch_result(session_id, &result, ev_tx).await;
+            apply_switch_result(client, session_id, &result, ev_tx).await;
             Ok(())
         }
         SessionCommand::FetchDelegation => {
@@ -386,18 +393,24 @@ async fn handle_live_cmd(
             let _ = ev_tx.send(result).await;
             Ok(())
         }
-        SessionCommand::AttachImage { path } => {
+        SessionCommand::AttachImage { path, label } => {
             let Some(sid) = session_id.as_deref() else {
                 return Err(GatewayError::Protocol("no session_id yet".into()));
             };
+            // `label` is additive — gateways that ignore unknown params still
+            // attach, and the ordinal then survives as attach order alone.
             let result = client
-                .request("image.attach", json!({ "session_id": sid, "path": path }))
+                .request(
+                    "image.attach",
+                    json!({ "session_id": sid, "path": path, "label": label }),
+                )
                 .await?;
             let notice = result
                 .get("text")
                 .and_then(|v| v.as_str())
-                .unwrap_or("image attached");
-            let _ = ev_tx.send(SessionEvent::Status(notice.to_string())).await;
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{label} attached"));
+            let _ = ev_tx.send(SessionEvent::Status(notice)).await;
             Ok(())
         }
         SessionCommand::ClipboardPaste => {
@@ -441,6 +454,25 @@ async fn handle_live_cmd(
                         .unwrap_or(&path)
                 )))
                 .await;
+            Ok(())
+        }
+        SessionCommand::SaveSpawnTree => {
+            let mut params = json!({});
+            if let Some(sid) = session_id.as_deref() {
+                params["session_id"] = json!(sid);
+            }
+            let result = client.request("spawn_tree.save", params).await?;
+            let label = result
+                .get("label")
+                .or_else(|| result.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("tree");
+            let _ = ev_tx
+                .send(SessionEvent::Status(format!("saved spawn tree {label}")))
+                .await;
+            if let Ok(listed) = client.request("spawn_tree.list", json!({})).await {
+                let _ = ev_tx.send(parse_spawn_trees(&listed)).await;
+            }
             Ok(())
         }
         SessionCommand::FetchModelOptions { refresh } => {
@@ -852,6 +884,7 @@ async fn emit_err(ev_tx: &mpsc::Sender<SessionEvent>, e: GatewayError) {
 }
 
 async fn apply_switch_result(
+    client: &GatewayClient,
     session_id: &mut Option<String>,
     result: &Value,
     ev_tx: &mpsc::Sender<SessionEvent>,
@@ -892,4 +925,52 @@ async fn apply_switch_result(
             messages: parse_transcript_messages(result),
         })
         .await;
+    if let Ok(catalog) = client.request("commands.catalog", json!({})).await {
+        let _ = ev_tx.send(parse_catalog(&catalog)).await;
+    }
+}
+
+async fn resume_or_create(
+    client: &GatewayClient,
+    session_id: &mut Option<String>,
+    query: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    ev_tx: &mpsc::Sender<SessionEvent>,
+) -> Result<(), GatewayError> {
+    let listed = client
+        .request("session.list", json!({ "limit": 80 }))
+        .await
+        .unwrap_or(json!({}));
+    let sessions = parse_saved_sessions(&listed);
+    let picked = match query.as_deref() {
+        None => sessions.first().map(|s| (s.id.clone(), s.title.clone())),
+        Some(q) => match_saved_session(&sessions, q).map(|id| {
+            let title = sessions
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.title.clone())
+                .unwrap_or_default();
+            (id, title)
+        }),
+    };
+    let Some((id, title)) = picked else {
+        if let Some(q) = query {
+            let _ = ev_tx
+                .send(SessionEvent::Status(format!(
+                    "no session matching {q}; starting fresh"
+                )))
+                .await;
+        }
+        return create_session(client, session_id, cwd, cols, ev_tx).await;
+    };
+    let result = client
+        .request("session.resume", json!({ "session_id": id, "cols": cols }))
+        .await?;
+    apply_switch_result(client, session_id, &result, ev_tx).await;
+    let label = if title.is_empty() { id } else { title };
+    let _ = ev_tx
+        .send(SessionEvent::Status(format!("resumed {label}")))
+        .await;
+    Ok(())
 }

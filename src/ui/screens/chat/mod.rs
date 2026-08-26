@@ -1,5 +1,6 @@
 //! Chat screen. State lives here so child modules can touch private fields.
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -7,21 +8,47 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 
 use crate::session::{
-    rewind_turns_from_messages, SessionEvent, SubagentKind, SubagentRow, TranscriptMessage,
-    UsageSnapshot,
+    rewind_turns_from_messages, SavedSession, SessionEvent, SubagentKind, SubagentRow,
+    TranscriptMessage, UsageSnapshot,
 };
 use crate::ui::screens::{Screen, ScreenAction};
-use crate::ui::widgets::{KeyHints, SlashItem, SlashMenu, Spinner, TextComposer};
+use crate::ui::widgets::{
+    paint_hosted, Inspector, KeyHints, Palette, Sheet, SheetKind, SlashItem, SlashMenu, Spinner,
+    TextComposer,
+};
 
 mod hubs;
 mod input;
 mod model_picker;
 mod overlay;
 mod render;
-mod status;
+pub(crate) mod status;
 mod tick;
 
 pub(crate) use overlay::Overlay;
+
+#[derive(Debug)]
+pub(crate) enum OpenSheet {
+    List(Sheet),
+    Model(model_picker::ModelPicker),
+    Skills(hubs::SkillsHub),
+    Plugins(hubs::PluginsHub),
+    Mcp(hubs::McpHub),
+}
+
+impl OpenSheet {
+    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect) {
+        match self {
+            OpenSheet::List(s) => s.render(f, area),
+            OpenSheet::Model(p) => {
+                paint_hosted(f, area, " model ", model_picker::lines(p));
+            }
+            OpenSheet::Skills(h) => paint_hosted(f, area, " skills ", hubs::skills_lines(h)),
+            OpenSheet::Plugins(h) => paint_hosted(f, area, " plugins ", hubs::plugins_lines(h)),
+            OpenSheet::Mcp(h) => paint_hosted(f, area, " mcp ", hubs::mcp_lines(h)),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum TimelineItem {
@@ -73,8 +100,14 @@ pub struct Chat {
     pub(crate) confirm_quit: bool,
     pub(crate) notice: Option<String>,
     pub(crate) overlay: Overlay,
+    pub(crate) sheet: Option<OpenSheet>,
+    pub(crate) git_branch: String,
+    pub(crate) inspector: Option<Inspector>,
+    pub(crate) palette: Palette,
     pub(crate) slash: SlashMenu,
     pub(crate) pending_send: Option<String>,
+    /// Follow-ups queued with Ctrl+Enter while a turn is running.
+    pub(crate) followup_queue: VecDeque<String>,
     pub(crate) follow: bool,
     pub(crate) thinking: bool,
     pub(crate) agents: Vec<SubagentRow>,
@@ -103,6 +136,16 @@ pub struct Chat {
     pub(crate) session_title: String,
     pub(crate) pending_usage: bool,
     pub(crate) update_available: Option<String>,
+    /// Last `session.list` payload. Empty-state shows up to three, excluding current.
+    pub(crate) recent_sessions: Vec<SavedSession>,
+    pub(crate) recent_selected: usize,
+    /// (start_row, len, index) for clickable recents on the empty state.
+    pub(crate) recent_hits: Vec<(u16, u16, usize)>,
+    /// Last `/model` write: `Some(true)` = Hermes `--global`, `Some(false)` = this session.
+    pub(crate) model_persist_global: Option<bool>,
+    /// Images dropped into the composer for the turn being written. `[Image #n]`
+    /// in the draft is this list's ordinal; cleared when the prompt is sent.
+    pub(crate) attachments: crate::attachments::Attachments,
 }
 
 impl Chat {
@@ -119,6 +162,16 @@ impl Chat {
             confirm_quit: false,
             notice: Some("starting…".into()),
             overlay: Overlay::None,
+            sheet: None,
+            git_branch: String::new(),
+            inspector: None,
+            palette: {
+                let mut items = Vec::new();
+                merge_host_slash_commands(&mut items);
+                let mut p = Palette::default();
+                p.set_catalog(items);
+                p
+            },
             slash: {
                 let mut items = Vec::new();
                 merge_host_slash_commands(&mut items);
@@ -127,6 +180,7 @@ impl Chat {
                 menu
             },
             pending_send: None,
+            followup_queue: VecDeque::new(),
             follow: true,
             thinking: false,
             agents: Vec::new(),
@@ -155,6 +209,11 @@ impl Chat {
             session_title: String::new(),
             pending_usage: false,
             update_available: None,
+            recent_sessions: Vec::new(),
+            recent_selected: 0,
+            recent_hits: Vec::new(),
+            model_persist_global: None,
+            attachments: crate::attachments::Attachments::default(),
         }
     }
 
@@ -256,6 +315,12 @@ impl Chat {
                         text: t,
                         streaming: false,
                     });
+                }
+                if let Some(next) = self.followup_queue.pop_front() {
+                    self.pending_send = Some(next);
+                    if !self.followup_queue.is_empty() {
+                        self.set_toast(format!("{} still queued", self.followup_queue.len()));
+                    }
                 }
                 self.scroll_to_bottom();
             }
@@ -452,23 +517,18 @@ impl Chat {
                     })
                     .collect();
                 merge_host_slash_commands(&mut items);
-                self.slash.set_commands(items);
+                self.slash.set_commands(items.clone());
+                self.palette.set_catalog(items);
                 if let Some(w) = warning {
                     self.notice = Some(w);
                 }
             }
             SessionEvent::SavedList { sessions } => {
-                if let Overlay::Sessions {
-                    saved,
-                    loading,
-                    notice,
-                    ..
-                } = &mut self.overlay
-                {
-                    *saved = sessions;
-                    *loading = false;
-                    *notice = None;
+                if let Some(OpenSheet::List(sheet)) = &mut self.sheet {
+                    sheet.set_saved(sessions.clone());
                 }
+                self.recent_sessions = sessions;
+                self.clamp_recent();
             }
             SessionEvent::ActiveList { sessions } => {
                 if let Some(cur) = sessions.iter().find(|s| s.current) {
@@ -478,16 +538,8 @@ impl Chat {
                         }
                     }
                 }
-                if let Overlay::Sessions {
-                    live,
-                    loading,
-                    notice,
-                    ..
-                } = &mut self.overlay
-                {
-                    *live = sessions;
-                    *loading = false;
-                    *notice = None;
+                if let Some(OpenSheet::List(sheet)) = &mut self.sheet {
+                    sheet.set_live(sessions);
                 }
             }
             SessionEvent::CommandResult {
@@ -563,6 +615,10 @@ impl Chat {
             }
             SessionEvent::Stderr { .. } => {}
             SessionEvent::Unhandled { .. } => {}
+            SessionEvent::SkinChanged { skin } => {
+                crate::theme::apply_skin(&skin);
+                self.notice = Some("skin updated".into());
+            }
             SessionEvent::Thinking { text } => {
                 self.thinking = true;
                 self.streaming = true;
@@ -580,31 +636,17 @@ impl Chat {
                 self.scroll_to_bottom();
             }
             SessionEvent::SpawnTrees { entries } => {
-                if let Overlay::SpawnTrees {
-                    entries: list,
-                    loading,
-                    ..
-                } = &mut self.overlay
-                {
-                    *list = entries;
-                    *loading = false;
+                if let Some(OpenSheet::List(sheet)) = &mut self.sheet {
+                    if matches!(sheet.kind, SheetKind::Trees { .. }) {
+                        sheet.set_trees(entries);
+                    }
                 }
             }
             SessionEvent::History { messages } => {
                 self.stamp_user_row_ids(&messages);
-                if let Overlay::Rewind {
-                    turns,
-                    loading,
-                    selected,
-                    ..
-                } = &mut self.overlay
-                {
-                    *turns = rewind_turns_from_messages(&messages);
-                    *loading = false;
-                    if !turns.is_empty() {
-                        *selected = (*selected).min(turns.len() - 1);
-                    } else {
-                        *selected = 0;
+                if let Some(OpenSheet::List(sheet)) = &mut self.sheet {
+                    if matches!(sheet.kind, SheetKind::Rewind { .. }) {
+                        sheet.set_rewind_turns(rewind_turns_from_messages(&messages));
                     }
                 }
             }
@@ -704,27 +746,18 @@ impl Chat {
                     self.model = snapshot.model.clone();
                 }
                 self.usage = snapshot.clone();
-                if let Overlay::Usage {
-                    loading,
-                    snapshot: slot,
-                    error,
-                } = &mut self.overlay
-                {
-                    *loading = false;
-                    *error = None;
-                    *slot = Some(snapshot);
+                if let Some(ins) = &mut self.inspector {
+                    if ins.kind == crate::ui::widgets::InspectorKind::Usage {
+                        ins.set_usage(&snapshot);
+                    }
                 }
             }
             SessionEvent::Delegation { agents } => {
                 self.agents = agents.clone();
-                if let Overlay::Agents {
-                    agents: list,
-                    loading,
-                    ..
-                } = &mut self.overlay
-                {
-                    *list = agents;
-                    *loading = false;
+                if let Some(OpenSheet::List(sheet)) = &mut self.sheet {
+                    if matches!(sheet.kind, SheetKind::Agents { .. }) {
+                        sheet.set_agents(agents);
+                    }
                 }
             }
             SessionEvent::ModelOptions {
@@ -732,7 +765,7 @@ impl Chat {
                 model,
                 error,
             } => {
-                if let Overlay::Model(picker) = &mut self.overlay {
+                if let Some(OpenSheet::Model(picker)) = &mut self.sheet {
                     if let Some(err) = error {
                         picker.loading = false;
                         picker.error = Some(err);
@@ -742,7 +775,7 @@ impl Chat {
                 }
             }
             SessionEvent::ModelKeySaved { provider, error } => {
-                if let Overlay::Model(picker) = &mut self.overlay {
+                if let Some(OpenSheet::Model(picker)) = &mut self.sheet {
                     picker.key_saving = false;
                     if let Some(err) = error {
                         picker.key_error = Some(err);
@@ -765,7 +798,7 @@ impl Chat {
                 }
             }
             SessionEvent::ModelDisconnected { slug, ok } => {
-                if let Overlay::Model(picker) = &mut self.overlay {
+                if let Some(OpenSheet::Model(picker)) = &mut self.sheet {
                     picker.key_saving = false;
                     picker.stage = model_picker::ModelStage::Provider;
                     if ok {
@@ -795,7 +828,7 @@ impl Chat {
                 if confirm_required {
                     let msg = confirm_message
                         .unwrap_or_else(|| "This model has unusually high known pricing.".into());
-                    if let Overlay::Model(picker) = &mut self.overlay {
+                    if let Some(OpenSheet::Model(picker)) = &mut self.sheet {
                         picker.confirm_message = Some(msg);
                         if picker.pending_value.is_none() {
                             picker.pending_value = value;
@@ -805,7 +838,7 @@ impl Chat {
                         picker.loading = false;
                         picker.pending_value = value;
                         picker.confirm_message = Some(msg);
-                        self.overlay = Overlay::Model(picker);
+                        self.sheet = Some(OpenSheet::Model(picker));
                     }
                     return;
                 }
@@ -814,23 +847,37 @@ impl Chat {
                 } else if let Some(v) = &value {
                     self.model = v.clone();
                 }
+                let persist_global = match &self.sheet {
+                    Some(OpenSheet::Model(p)) => Some(p.persist_global),
+                    _ => None,
+                };
+                if persist_global.is_some() {
+                    self.model_persist_global = persist_global;
+                }
                 let shown = value.as_deref().unwrap_or("?");
-                let msg = if deferred {
-                    format!("model → {shown} (applies next turn)")
-                } else {
-                    format!("model → {shown}")
+                let when = if deferred { " (next turn)" } else { "" };
+                let msg = match persist_global {
+                    Some(true) => format!("model → {shown} · saved globally{when}"),
+                    Some(false) => format!("model → {shown} · this session{when}"),
+                    None => {
+                        if deferred {
+                            format!("model → {shown} (applies next turn)")
+                        } else {
+                            format!("model → {shown}")
+                        }
+                    }
                 };
                 self.notice = Some(msg.clone());
                 self.items.push(TimelineItem::Status(msg));
                 if let Some(w) = warning {
                     self.items.push(TimelineItem::Status(w));
                 }
-                if matches!(self.overlay, Overlay::Model(_)) {
-                    self.overlay.close();
+                if matches!(self.sheet, Some(OpenSheet::Model(_))) {
+                    self.sheet = None;
                 }
             }
             SessionEvent::SkillsList { groups, error } => {
-                if let Overlay::Skills(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Skills(hub)) = &mut self.sheet {
                     hub.loading = false;
                     hub.error = error;
                     hub.groups = groups;
@@ -846,12 +893,12 @@ impl Chat {
                 };
                 self.notice = Some(msg.clone());
                 self.items.push(TimelineItem::Status(msg.clone()));
-                if let Overlay::Skills(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Skills(hub)) = &mut self.sheet {
                     hub.notice = Some(msg);
                 }
             }
             SessionEvent::PluginsList { plugins, error } => {
-                if let Overlay::Plugins(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Plugins(hub)) = &mut self.sheet {
                     hub.loading = false;
                     hub.error = error;
                     hub.plugins = plugins;
@@ -861,7 +908,7 @@ impl Chat {
                 }
             }
             SessionEvent::PluginToggled { plugin, ok } => {
-                if let Overlay::Plugins(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Plugins(hub)) = &mut self.sheet {
                     if let Some(row) = plugin {
                         let key = row.key.clone();
                         let status = row.status.clone();
@@ -879,7 +926,7 @@ impl Chat {
                 }
             }
             SessionEvent::McpServers { servers, error } => {
-                if let Overlay::Mcp(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Mcp(hub)) = &mut self.sheet {
                     hub.loading = false;
                     if error.is_some() {
                         hub.error = error;
@@ -888,7 +935,7 @@ impl Chat {
                 }
             }
             SessionEvent::McpCatalog { servers, error } => {
-                if let Overlay::Mcp(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Mcp(hub)) = &mut self.sheet {
                     hub.loading = false;
                     if error.is_some() {
                         hub.error = error;
@@ -897,7 +944,7 @@ impl Chat {
                 }
             }
             SessionEvent::McpChanged { name, ok, error } => {
-                if let Overlay::Mcp(hub) = &mut self.overlay {
+                if let Some(OpenSheet::Mcp(hub)) = &mut self.sheet {
                     hub.loading = false;
                     if let Some(e) = error {
                         hub.error = Some(e);
@@ -948,6 +995,13 @@ impl Chat {
         if let Some(c) = info.get("cwd").and_then(|v| v.as_str()) {
             self.cwd = c.to_string();
         }
+        if let Some(b) = info
+            .get("branch")
+            .or_else(|| info.get("git_branch"))
+            .and_then(|v| v.as_str())
+        {
+            self.git_branch = b.to_string();
+        }
         if let Some(v) = info.get("version").and_then(|v| v.as_str()) {
             self.version = v.to_string();
         }
@@ -966,6 +1020,8 @@ impl Chat {
 
     pub fn push_user(&mut self, text: String) {
         self.mark_turn_started();
+        // Placeholders were consumed by this turn; the next drop starts at #1.
+        self.attachments.clear();
         let text = crate::logging::strip_controls(&text);
         self.items.push(TimelineItem::User { text, row_id: None });
         self.scroll_to_bottom();
@@ -973,13 +1029,9 @@ impl Chat {
 
     pub fn open_rewind(&mut self) {
         self.slash.close();
+        self.palette.close();
         let turns = rewind_turns_from_timeline(&self.items);
-        self.overlay = Overlay::Rewind {
-            turns,
-            selected: 0,
-            loading: true,
-            confirming: false,
-        };
+        self.sheet = Some(OpenSheet::List(Sheet::rewind(turns)));
     }
 
     pub fn apply_rewind_locally(&mut self, row_id: i64, text: String) {
@@ -1084,10 +1136,43 @@ impl Chat {
     }
 
     pub fn toggle_tool_at(&mut self, i: usize) {
-        if let Some(TimelineItem::Tool { expanded, .. }) = self.items.get_mut(i) {
-            *expanded = !*expanded;
-            self.selected_tool = Some(i);
+        self.selected_tool = Some(i);
+        self.open_tool_inspector(i);
+    }
+
+    pub fn open_tool_inspector(&mut self, i: usize) {
+        let Some(TimelineItem::Tool {
+            name,
+            args,
+            preview,
+            result,
+            error,
+            done,
+            ..
+        }) = self.items.get(i)
+        else {
+            return;
+        };
+        let state = if *done { "done" } else { "running" };
+        let mut body = Vec::new();
+        if !args.is_empty() {
+            body.push(args.clone());
         }
+        if !preview.is_empty() && result.is_empty() {
+            body.push(preview.clone());
+        }
+        if !result.is_empty() {
+            for l in result.split('\n') {
+                body.push(l.to_string());
+            }
+        }
+        if let Some(err) = error {
+            body.push(err.clone());
+        }
+        if body.is_empty() {
+            body.push("(empty)".into());
+        }
+        self.inspector = Some(Inspector::tool(name.clone(), state, body));
     }
 
     pub fn tool_at_visual_row(&self, visual_row: u16) -> Option<usize> {
@@ -1100,9 +1185,59 @@ impl Chat {
         })
     }
 
+    pub(crate) fn recent_for_empty(&self) -> Vec<&SavedSession> {
+        self.recent_sessions
+            .iter()
+            .filter(|s| s.id != self.session_id && s.id != self.stored_session_id && s.id != "—")
+            .take(3)
+            .collect()
+    }
+
+    pub(crate) fn is_returning_empty(&self) -> bool {
+        self.items.is_empty() && !self.streaming && !self.recent_for_empty().is_empty()
+    }
+
+    fn clamp_recent(&mut self) {
+        let n = self.recent_for_empty().len();
+        if n == 0 {
+            self.recent_selected = 0;
+        } else if self.recent_selected >= n {
+            self.recent_selected = n - 1;
+        }
+    }
+
+    pub(crate) fn move_recent(&mut self, delta: i32) {
+        let n = self.recent_for_empty().len() as i32;
+        if n == 0 {
+            return;
+        }
+        self.recent_selected = (self.recent_selected as i32 + delta).rem_euclid(n) as usize;
+    }
+
+    pub(crate) fn resume_recent(&self, index: usize) -> Option<ScreenAction> {
+        self.recent_for_empty()
+            .get(index)
+            .map(|s| ScreenAction::ResumeSaved {
+                session_id: s.id.clone(),
+            })
+    }
+
+    fn recent_at_visual_row(&self, visual_row: u16) -> Option<usize> {
+        self.recent_hits.iter().find_map(|(start, len, i)| {
+            if visual_row >= *start && visual_row < start.saturating_add(*len) {
+                Some(*i)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn begin_new_session(&mut self) {
         self.slash.close();
         self.overlay.close();
+        self.sheet = None;
+        self.inspector = None;
+        self.palette.close();
         self.items.clear();
         self.selected_tool = None;
         self.tool_hits.clear();
@@ -1121,16 +1256,17 @@ impl Chat {
         self.last_turn_ended = None;
         self.last_turn_secs = None;
         self.session_title.clear();
+        self.git_branch.clear();
+        self.model_persist_global = None;
         self.pending_usage = false;
+        self.followup_queue.clear();
+        self.pending_send = None;
     }
 
     pub fn open_spawn_trees(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::SpawnTrees {
-            entries: Vec::new(),
-            selected: 0,
-            loading: true,
-        };
+        self.palette.close();
+        self.sheet = Some(OpenSheet::List(Sheet::trees()));
     }
 
     fn tool_index(&self, id: Option<&str>, name: Option<&str>) -> Option<usize> {
@@ -1177,7 +1313,12 @@ impl Chat {
                 self.scroll = self.scroll.saturating_add(1);
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                if self.overlay.is_open() || self.slash.is_active() {
+                if self.overlay.is_open()
+                    || self.slash.is_active()
+                    || self.palette.is_active()
+                    || self.sheet.is_some()
+                    || self.inspector.is_some()
+                {
                     return None;
                 }
                 let Some(pos) = self.mouse_in_transcript(&mouse) else {
@@ -1216,6 +1357,9 @@ impl Chat {
                 } else {
                     self.selection = None;
                     if let Some((row, _)) = self.mouse_in_transcript(&mouse) {
+                        if let Some(i) = self.recent_at_visual_row(row) {
+                            return self.resume_recent(i);
+                        }
                         if let Some(i) = self.tool_at_visual_row(row) {
                             self.toggle_tool_at(i);
                         }
@@ -1313,12 +1457,16 @@ impl Chat {
     fn key_hints_impl(&self) -> KeyHints {
         if self.confirm_quit {
             KeyHints::confirm_quit()
-        } else if self.overlay.is_open() {
+        } else if self.palette.is_active() {
+            KeyHints::slash()
+        } else if self.inspector.is_some() || self.sheet.is_some() || self.overlay.is_open() {
             KeyHints::overlay()
         } else if self.slash.is_active() {
             KeyHints::slash()
         } else if self.streaming || self.thinking {
             KeyHints::streaming()
+        } else if self.is_returning_empty() && self.composer.draft.is_empty() {
+            KeyHints::returning()
         } else {
             let has_tools = self
                 .items
@@ -1391,6 +1539,7 @@ impl Chat {
         };
         status::Meter {
             model: self.model.clone(),
+            git_branch: self.git_branch.clone(),
             usage: self.usage.clone(),
             session,
             turn,
@@ -1398,80 +1547,109 @@ impl Chat {
             idle,
             right,
             spinner: live.then(|| self.spinner.glyph()),
+            model_global: self.model_persist_global == Some(true),
         }
     }
 
     pub fn open_model(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Model(model_picker::ModelPicker::loading());
+        self.palette.close();
+        self.sheet = Some(OpenSheet::Model(model_picker::ModelPicker::loading()));
     }
 
     pub fn open_skills(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Skills(hubs::SkillsHub::loading());
+        self.palette.close();
+        self.sheet = Some(OpenSheet::Skills(hubs::SkillsHub::loading()));
     }
 
     pub fn open_plugins(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Plugins(hubs::PluginsHub::loading());
+        self.palette.close();
+        self.sheet = Some(OpenSheet::Plugins(hubs::PluginsHub::loading()));
     }
 
     pub fn open_mcp(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Mcp(hubs::McpHub::loading());
+        self.palette.close();
+        self.sheet = Some(OpenSheet::Mcp(hubs::McpHub::loading()));
     }
 
     pub fn open_theme(&mut self) {
         self.slash.close();
-        let saved_id = crate::theme::current_theme_id();
-        let selected = crate::theme::themes()
-            .iter()
-            .position(|t| t.id == saved_id)
-            .unwrap_or(0);
-        self.overlay = Overlay::Theme { selected, saved_id };
+        self.palette.close();
+        self.sheet = Some(OpenSheet::List(Sheet::theme()));
     }
 
     pub fn open_help(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Help;
+        self.palette.close();
+        self.inspector = Some(Inspector::help(help_lines(
+            self.update_available.as_deref(),
+            (!self.version.is_empty()).then_some(self.version.as_str()),
+        )));
     }
 
     pub fn open_custom(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Custom { selected: 0 };
+        self.palette.close();
+        self.sheet = Some(OpenSheet::List(Sheet::custom()));
     }
 
     pub fn open_agents(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Agents {
-            agents: self.agents.clone(),
-            selected: 0,
-            loading: true,
-            steering: false,
-            draft: String::new(),
-        };
+        self.palette.close();
+        self.sheet = Some(OpenSheet::List(Sheet::agents(self.agents.clone())));
     }
 
     pub fn open_usage(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Usage {
-            loading: true,
-            snapshot: None,
-            error: None,
-        };
+        self.palette.close();
+        self.inspector = Some(Inspector::usage_loading());
+        if self.usage.calls > 0 || self.usage.context_max > 0 {
+            if let Some(ins) = &mut self.inspector {
+                ins.set_usage(&self.usage);
+            }
+        }
     }
 
     pub fn open_sessions(&mut self) {
         self.slash.close();
-        self.overlay = Overlay::Sessions {
-            tab: overlay::SessionTab::Saved,
-            saved: Vec::new(),
-            live: Vec::new(),
-            selected: 0,
-            loading: true,
-            notice: None,
-        };
+        self.palette.close();
+        self.sheet = Some(OpenSheet::List(Sheet::sessions()));
     }
+}
+
+fn help_lines(update: Option<&str>, hermes: Option<&str>) -> Vec<String> {
+    let mut lines = vec![format!("Talaria Client  v{}", env!("CARGO_PKG_VERSION"))];
+    if let Some(v) = hermes {
+        lines.push(format!("Hermes Agent    v{v}"));
+    }
+    lines.push("Native TUI host for Hermes Agent".into());
+    if let Some(v) = update {
+        lines.push(crate::update::notice_line(v));
+    }
+    lines.extend([
+        String::new(),
+        "Enter            send (steer if a turn is running)".into(),
+        "Ctrl+Enter       queue follow-up".into(),
+        "Ctrl+K           command palette".into(),
+        "Shift+Enter      newline".into(),
+        "/                slash catalog".into(),
+        "!cmd             local shell".into(),
+        "Esc              interrupt / dismiss".into(),
+        "Ctrl+C then y    quit".into(),
+        String::new(),
+        "/new             new session".into(),
+        "/clear           wipe the view (not a new session)".into(),
+        "/sessions        sheet: saved vs live".into(),
+        "/trees           sheet: spawn trees (s save)".into(),
+        "/rewind /model /skills /plugins /mcp /agents /usage /skin".into(),
+        "Ctrl+O / click   tool inspector".into(),
+        "Ctrl+V           paste text, else clipboard image".into(),
+        "c in inspector   copy body".into(),
+    ]);
+    lines
 }
 
 fn grouped_map(v: Option<&serde_json::Value>) -> Vec<(String, Vec<String>)> {
@@ -1508,6 +1686,7 @@ fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
         ("plugins", "toggle plugins"),
         ("mcp", "add or remove MCP servers"),
         ("rewind", "regenerate from a past user turn"),
+        ("new", "new session"),
         ("trees", "saved spawn trees"),
         ("usage", "token / cost for this session"),
         ("custom", "toggle status bar and key hints"),
@@ -1734,6 +1913,36 @@ mod tests {
         });
         assert_eq!(chat.model, "openrouter/foo");
         assert!(!chat.overlay.is_open());
+        assert_eq!(
+            chat.notice.as_deref(),
+            Some("model → openrouter/foo · saved globally")
+        );
+        assert_eq!(chat.model_persist_global, Some(true));
+        assert!(chat.meter().model_global);
+    }
+
+    #[test]
+    fn config_set_session_scope_is_opt_in() {
+        let mut chat = Chat::new();
+        chat.open_model();
+        if let Some(OpenSheet::Model(p)) = &mut chat.sheet {
+            p.persist_global = false;
+        }
+        chat.apply_event(SessionEvent::ConfigSet {
+            key: "model".into(),
+            value: Some("ox-alpha".into()),
+            warning: None,
+            deferred: false,
+            confirm_required: false,
+            confirm_message: None,
+            info: None,
+        });
+        assert_eq!(
+            chat.notice.as_deref(),
+            Some("model → ox-alpha · this session")
+        );
+        assert_eq!(chat.model_persist_global, Some(false));
+        assert!(!chat.meter().model_global);
     }
 
     #[test]
@@ -1792,19 +2001,32 @@ mod tests {
             },
         ];
         chat.toggle_tool_at(0);
-        match &chat.items[0] {
-            TimelineItem::Tool { expanded, .. } => assert!(*expanded),
-            other => panic!("{other:?}"),
-        }
+        assert_eq!(chat.selected_tool, Some(0));
+        let ins = chat.inspector.as_ref().expect("inspector");
+        assert!(ins.title.contains("first"), "{}", ins.title);
+        assert!(ins.body_text().contains("one"));
         match &chat.items[1] {
             TimelineItem::Tool { expanded, .. } => assert!(!*expanded),
             other => panic!("{other:?}"),
         }
         chat.toggle_last_tool();
-        match &chat.items[0] {
-            TimelineItem::Tool { expanded, .. } => assert!(!*expanded),
-            other => panic!("{other:?}"),
-        }
+        let ins = chat.inspector.as_ref().expect("inspector");
+        assert!(ins.body_text().contains("one"));
+    }
+
+    #[test]
+    fn ctrl_k_opens_palette_and_enter_opens_sessions_sheet() {
+        use crate::ui::keys::is_ctrl_k;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut chat = Chat::new();
+        let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
+        assert!(is_ctrl_k(&key));
+        assert!(chat.on_key(key).is_none());
+        assert!(chat.palette.is_active());
+        let action = chat.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(action, Some(ScreenAction::OpenSessions)));
+        chat.open_sessions();
+        assert!(chat.sheet.is_some());
     }
 
     #[test]
@@ -1819,8 +2041,8 @@ mod tests {
             confirm_message: Some("pricey".into()),
             info: None,
         });
-        match &chat.overlay {
-            Overlay::Model(p) => {
+        match &chat.sheet {
+            Some(OpenSheet::Model(p)) => {
                 assert_eq!(p.confirm_message.as_deref(), Some("pricey"));
                 assert_eq!(p.pending_value.as_deref(), Some("opus --global"));
             }
@@ -1853,6 +2075,154 @@ mod tests {
         assert_eq!(texts.iter().rev().nth(0).copied(), Some("second"));
         assert_eq!(texts.iter().rev().nth(1).copied(), Some("first"));
         assert_eq!(texts.iter().rev().nth(2).copied(), None);
+    }
+
+    #[test]
+    fn ctrl_enter_queues_while_streaming() {
+        let mut chat = Chat::new();
+        chat.streaming = true;
+        chat.composer.insert_str("follow up");
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::CONTROL,
+        ));
+        assert!(action.is_none());
+        assert_eq!(
+            chat.followup_queue.front().map(String::as_str),
+            Some("follow up")
+        );
+        chat.apply_event(SessionEvent::MessageComplete {
+            session_id: None,
+            text: Some("done".into()),
+        });
+        assert_eq!(chat.pending_send.as_deref(), Some("follow up"));
+        assert!(chat.followup_queue.is_empty());
+    }
+
+    #[test]
+    fn session_info_sets_git_branch() {
+        let mut chat = Chat::new();
+        chat.apply_event(SessionEvent::SessionInfo {
+            session_id: None,
+            info: serde_json::json!({ "model": "ox", "branch": "docs/redesign" }),
+        });
+        assert_eq!(chat.git_branch, "docs/redesign");
+        assert_eq!(chat.model, "ox");
+    }
+
+    #[test]
+    fn slash_new_is_host_new_session() {
+        let mut chat = Chat::new();
+        chat.composer.insert_str("/new");
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(matches!(action, Some(ScreenAction::NewSession)));
+    }
+
+    #[test]
+    fn slash_model_id_writes_hermes_global() {
+        let mut chat = Chat::new();
+        chat.composer.insert_str("/model ox-alpha");
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        match action {
+            Some(ScreenAction::SetModel { value, .. }) => {
+                assert!(value.contains("ox-alpha"), "{value}");
+                assert!(value.contains("--global"), "{value}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn slash_model_session_flag_is_honored() {
+        let mut chat = Chat::new();
+        chat.composer.insert_str("/model ox-alpha --session");
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        match action {
+            Some(ScreenAction::SetModel { value, .. }) => {
+                assert!(value.contains("--session"), "{value}");
+                assert!(!value.contains("--global"), "{value}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn slash_clear_wipes_view_only() {
+        let mut chat = Chat::new();
+        chat.items.push(TimelineItem::User {
+            text: "hi".into(),
+            row_id: None,
+        });
+        chat.composer.insert_str("/clear");
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(action.is_none());
+        assert!(chat.items.is_empty());
+        assert!(chat.notice.as_deref().unwrap_or("").contains("/new"));
+    }
+
+    fn sample_saved(id: &str, title: &str) -> SavedSession {
+        SavedSession {
+            id: id.into(),
+            title: title.into(),
+            preview: format!("{title} preview"),
+            source: "tui".into(),
+            message_count: 3,
+        }
+    }
+
+    #[test]
+    fn saved_list_feeds_returning_empty() {
+        let mut chat = Chat::new();
+        chat.session_id = "current".into();
+        chat.apply_event(SessionEvent::SavedList {
+            sessions: vec![
+                sample_saved("a", "Auth"),
+                sample_saved("current", "now"),
+                sample_saved("b", "Notes"),
+            ],
+        });
+        let recents: Vec<&str> = chat
+            .recent_for_empty()
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(recents, ["a", "b"]);
+        assert!(chat.is_returning_empty());
+    }
+
+    #[test]
+    fn returning_digit_and_enter_resume() {
+        let mut chat = Chat::new();
+        chat.recent_sessions = vec![sample_saved("a", "Auth"), sample_saved("b", "Notes")];
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(matches!(
+            action,
+            Some(ScreenAction::ResumeSaved { session_id }) if session_id == "b"
+        ));
+        chat.recent_selected = 0;
+        let action = chat.on_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(matches!(
+            action,
+            Some(ScreenAction::ResumeSaved { session_id }) if session_id == "a"
+        ));
     }
 }
 

@@ -328,6 +328,18 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .unwrap_or("")
                 .to_string(),
         },
+        "skin.changed" => SessionEvent::SkinChanged {
+            skin: payload.get("skin").cloned().unwrap_or(payload),
+        },
+        "background.complete" => {
+            SessionEvent::Status(format!("background complete{}", payload_suffix(&payload)))
+        }
+        "status.update" => SessionEvent::Status(
+            payload_message(&payload).unwrap_or_else(|| "status update".into()),
+        ),
+        other if other.starts_with("notification.") => {
+            SessionEvent::Status(payload_message(&payload).unwrap_or_else(|| other.to_string()))
+        }
         other if is_unhandled_v1(other) => SessionEvent::Unhandled {
             type_name: other.to_string(),
             payload,
@@ -396,8 +408,8 @@ pub(super) fn parse_catalog(result: &Value) -> SessionEvent {
     }
 }
 
-pub(super) fn parse_saved_list(result: &Value) -> SessionEvent {
-    let sessions = result
+pub(crate) fn parse_saved_sessions(result: &Value) -> Vec<SavedSession> {
+    result
         .get("sessions")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -426,8 +438,51 @@ pub(super) fn parse_saved_list(result: &Value) -> SessionEvent {
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    SessionEvent::SavedList { sessions }
+        .unwrap_or_default()
+}
+
+pub(super) fn parse_saved_list(result: &Value) -> SessionEvent {
+    SessionEvent::SavedList {
+        sessions: parse_saved_sessions(result),
+    }
+}
+
+/// Exact id, then exact title (case-insensitive), then title substring.
+pub(crate) fn match_saved_session(sessions: &[SavedSession], query: &str) -> Option<String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    if let Some(s) = sessions.iter().find(|s| s.id == q) {
+        return Some(s.id.clone());
+    }
+    let lower = q.to_ascii_lowercase();
+    if let Some(s) = sessions.iter().find(|s| s.title.eq_ignore_ascii_case(q)) {
+        return Some(s.id.clone());
+    }
+    sessions
+        .iter()
+        .find(|s| s.title.to_ascii_lowercase().contains(&lower))
+        .map(|s| s.id.clone())
+}
+
+fn payload_message(payload: &Value) -> Option<String> {
+    for key in ["text", "message", "summary", "status", "title", "body"] {
+        if let Some(s) = payload.get(key).and_then(|v| v.as_str()) {
+            let s = clean(s);
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
+fn payload_suffix(payload: &Value) -> String {
+    match payload_message(payload) {
+        Some(s) => format!(": {s}"),
+        None => String::new(),
+    }
 }
 
 pub(super) fn parse_active_list(result: &Value) -> SessionEvent {
@@ -926,6 +981,81 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn maps_skin_background_status_and_notifications() {
+        let skin = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "skin.changed".into(),
+            payload: json!({"skin": {"name": "ares"}}),
+            session_id: None,
+        }));
+        match skin {
+            SessionEvent::SkinChanged { skin } => {
+                assert_eq!(skin.get("name").and_then(|v| v.as_str()), Some("ares"));
+            }
+            other => panic!("{other:?}"),
+        }
+        let bg = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "background.complete".into(),
+            payload: json!({"summary": "done compiling"}),
+            session_id: None,
+        }));
+        match bg {
+            SessionEvent::Status(s) => assert!(s.contains("done compiling"), "{s}"),
+            other => panic!("{other:?}"),
+        }
+        let st = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "status.update".into(),
+            payload: json!({"message": "yolo on"}),
+            session_id: None,
+        }));
+        match st {
+            SessionEvent::Status(s) => assert_eq!(s, "yolo on"),
+            other => panic!("{other:?}"),
+        }
+        let note = map_gateway_event(GatewayEvent::Event(WireEvent {
+            type_name: "notification.info".into(),
+            payload: json!({"text": "mcp ready"}),
+            session_id: None,
+        }));
+        match note {
+            SessionEvent::Status(s) => assert_eq!(s, "mcp ready"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn match_saved_prefers_id_then_title() {
+        let sessions = vec![
+            SavedSession {
+                id: "abc".into(),
+                title: "Auth refactor".into(),
+                preview: String::new(),
+                source: "tui".into(),
+                message_count: 1,
+            },
+            SavedSession {
+                id: "def".into(),
+                title: "notes".into(),
+                preview: String::new(),
+                source: "cli".into(),
+                message_count: 2,
+            },
+        ];
+        assert_eq!(
+            match_saved_session(&sessions, "abc").as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            match_saved_session(&sessions, "auth refactor").as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            match_saved_session(&sessions, "NOTE").as_deref(),
+            Some("def")
+        );
+        assert!(match_saved_session(&sessions, "nope").is_none());
     }
 
     #[test]

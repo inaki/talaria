@@ -1,3 +1,4 @@
+pub mod gallery;
 pub mod keys;
 pub mod screens;
 pub mod widgets;

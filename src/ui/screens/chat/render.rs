@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::theme;
 use crate::ui::screens::chat::TimelineItem;
-use crate::ui::widgets::markdown_to_lines;
+use crate::ui::widgets::markdown_to_lines_at;
 
 use super::Chat;
 
@@ -62,6 +62,14 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
         f.render_widget(chat.key_hints_impl(), gutter(chunks[i]));
     }
 
+    if let Some(sheet) = &chat.sheet {
+        sheet.render(f, area);
+    }
+    if let Some(ins) = &chat.inspector {
+        ins.render(f, area);
+    }
+    chat.palette.render(f, area);
+
     super::overlay::draw_overlay(
         &chat.overlay,
         f,
@@ -72,13 +80,6 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     if chat.confirm_quit {
         draw_quit_modal(f, area);
     }
-}
-
-fn version_line(name: &str, ver: &str, name_style: Style, ver_style: Style) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{name:<16}"), name_style),
-        Span::styled(ver.to_string(), ver_style),
-    ])
 }
 
 fn gutter(area: Rect) -> Rect {
@@ -99,7 +100,8 @@ fn draw_meter(chat: &Chat, f: &mut Frame, area: Rect) {
 
 fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     if chat.items.is_empty() && !chat.streaming {
-        chat.plain_rows.clear();
+        chat.transcript_area = area;
+        chat.tool_hits.clear();
         draw_splash(chat, f, area);
         return;
     }
@@ -121,13 +123,13 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                         lines.push(Line::from(vec![
                             Span::raw(indent.clone()),
                             Span::styled("● ", theme::user().add_modifier(Modifier::BOLD)),
-                            Span::styled(l.to_string(), theme::user()),
+                            Span::styled(l.to_string(), theme::text()),
                         ]));
                         first = false;
                     } else {
                         lines.push(Line::from(Span::styled(
                             format!("{indent}  {l}"),
-                            theme::user(),
+                            theme::text(),
                         )));
                     }
                 }
@@ -140,7 +142,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                         body.push(Line::from(Span::styled(l.to_string(), theme::assistant())));
                     }
                 } else {
-                    body = markdown_to_lines(text);
+                    body = markdown_to_lines_at(text, panel_width(col_w).saturating_sub(2));
                 }
                 lines.extend(assistant_card(body, *streaming, col_w));
                 lines.push(Line::from(""));
@@ -148,17 +150,19 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
             TimelineItem::Thinking { text, live } => {
                 let raw: Vec<&str> = text.split('\n').collect();
                 let start = raw.len().saturating_sub(8);
-                let body = raw[start..]
-                    .iter()
-                    .map(|l| Line::from(Span::styled((*l).to_string(), theme::dim())))
-                    .collect();
-                let mut title = vec![Span::styled(" thinking", theme::dim())];
+                let italic = theme::dim().add_modifier(Modifier::ITALIC);
                 let is_last = i + 1 == chat.items.len();
-                if *live && is_last {
-                    title.push(Span::raw(" "));
-                    title.push(chat.spinner.span(theme::accent()));
+                let mut first = true;
+                for l in &raw[start..] {
+                    let mut spans = vec![Span::styled("  ", italic)];
+                    if first && *live && is_last {
+                        spans.push(chat.spinner.span(theme::accent()));
+                        spans.push(Span::raw(" "));
+                    }
+                    spans.push(Span::styled((*l).to_string(), italic));
+                    lines.push(Line::from(spans));
+                    first = false;
                 }
-                lines.extend(rounded_panel(title, body, panel_width(col_w), false, true));
                 lines.push(Line::from(""));
             }
             TimelineItem::Tool {
@@ -174,20 +178,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                 let state = if *done { "done" } else { "running" };
                 if !*expanded {
                     let hint = first_tool_hint(result, preview, args);
-                    let selected = chat.selected_tool == Some(i);
                     lines.push(tool_chip(name, state, hint, panel_width(col_w)));
-                    lines.push(Line::from(Span::styled(
-                        if selected {
-                            "  click / Ctrl+O collapse-or-expand  (selected)"
-                        } else {
-                            "  click or Ctrl+O expand"
-                        },
-                        if selected {
-                            theme::accent()
-                        } else {
-                            theme::dim()
-                        },
-                    )));
                 } else {
                     let mut body: Vec<Line> = Vec::new();
                     if !args.is_empty() {
@@ -204,14 +195,6 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                     if let Some(err) = error {
                         body.push(Line::from(Span::styled(err.clone(), theme::error())));
                     }
-                    body.push(Line::from(Span::styled(
-                        if chat.selected_tool == Some(i) {
-                            "click / Ctrl+O collapse  (selected)"
-                        } else {
-                            "click or Ctrl+O collapse"
-                        },
-                        theme::dim(),
-                    )));
                     lines.extend(rounded_panel(
                         vec![Span::styled(format!(" ▸ {name}  [{state}]"), theme::tool())],
                         body,
@@ -315,196 +298,167 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-fn draw_splash(chat: &Chat, f: &mut Frame, area: Rect) {
+fn draw_splash(chat: &mut Chat, f: &mut Frame, area: Rect) {
+    let (lines, hits) = splash_layout(chat, area);
+    chat.recent_hits = hits;
+    chat.plain_rows = lines.iter().map(line_plain).collect();
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+#[cfg(test)]
+fn splash_lines(chat: &Chat, area: Rect) -> Vec<Line<'static>> {
+    splash_layout(chat, area).0
+}
+
+fn splash_layout(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
+    if chat.is_returning_empty() {
+        returning_lines(chat, area)
+    } else {
+        (first_run_lines(chat, area), Vec::new())
+    }
+}
+
+fn first_run_lines(chat: &Chat, area: Rect) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line> = Vec::new();
+    for _ in 0..EDGE_PAD {
+        lines.push(Line::from(""));
+    }
+
     let logo = crate::ui::widgets::logo_lines();
     let logo_w = logo.iter().map(|l| l.width() as u16).max().unwrap_or(0);
-    let tag = crate::ui::widgets::tagline();
-    let mut logo_block: Vec<Line> = logo;
-    logo_block.push(Line::from(Span::styled(format!("✦ {tag}"), theme::dim())));
-    logo_block.push(Line::from(""));
-
-    let logo_h = logo_block.len() as u16;
-    let (banner_area, panel_area) = if area.width >= logo_w && area.height > logo_h + 10 {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(logo_h), Constraint::Min(8)])
-            .split(area);
-        f.render_widget(
-            Paragraph::new(logo_block).wrap(Wrap { trim: false }),
-            chunks[0],
-        );
-        (chunks[0], chunks[1])
+    let logo_h = logo.len() as u16;
+    if area.width >= logo_w && area.height > logo_h.saturating_add(10) {
+        lines.extend(logo);
     } else {
-        (Rect::default(), area)
-    };
-    let _ = banner_area;
-
-    let caduceus = crate::ui::widgets::caduceus_lines();
-    let cad_w = crate::ui::widgets::caduceus_width().saturating_add(4);
-    let wide = panel_area.width >= 90 && cad_w + 40 < panel_area.width;
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::INPUT_BORDER()))
-        .style(Style::default().bg(theme::BACKGROUND()));
-    let inner = block.inner(panel_area);
-    f.render_widget(block, panel_area);
-
-    if wide {
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(cad_w), Constraint::Min(40)])
-            .split(inner);
-        draw_hero_column(chat, f, cols[0], &caduceus);
-        draw_info_column(chat, f, cols[1], true);
-    } else {
-        draw_info_column(chat, f, inner, false);
-    }
-}
-
-fn draw_hero_column(chat: &Chat, f: &mut Frame, area: Rect, caduceus: &[Line<'static>]) {
-    let mut lines = caduceus.to_vec();
-    lines.push(Line::from(""));
-    let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
-    lines.push(Line::from(vec![
-        Span::styled(model.to_string(), theme::tool()),
-        Span::styled(" · Nous Research", theme::dim()),
-    ]));
-    lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
-    let sid = if chat.stored_session_id.is_empty() {
-        chat.session_id.clone()
-    } else {
-        chat.stored_session_id.clone()
-    };
-    lines.push(Line::from(vec![
-        Span::styled("Session: ", theme::user()),
-        Span::styled(sid, theme::dim()),
-    ]));
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
-}
-
-fn draw_info_column(chat: &Chat, f: &mut Frame, area: Rect, wide: bool) {
-    let mut lines: Vec<Line> = Vec::new();
-    if wide {
-        lines.push(version_line(
-            "Talaria Client",
-            &format!("v{}", env!("CARGO_PKG_VERSION")),
+        lines.push(Line::from(Span::styled(
+            "TALARIA",
             theme::accent().add_modifier(Modifier::BOLD),
-            theme::accent(),
-        ));
-        if !chat.version.is_empty() {
-            let mut hermes_ver = format!("v{}", chat.version);
-            if !chat.release_date.is_empty() {
-                hermes_ver.push_str(&format!(" ({})", chat.release_date));
-            }
-            lines.push(version_line(
-                "Hermes Agent",
-                &hermes_ver,
-                theme::tool().add_modifier(Modifier::BOLD),
-                theme::dim(),
-            ));
-        }
-        lines.push(Line::from(Span::styled(
-            "Native Rust TUI for Hermes Agent",
-            theme::dim(),
         )));
-        if let Some(v) = &chat.update_available {
-            lines.push(Line::from(Span::styled(
-                crate::update::notice_line(v),
-                Style::default().fg(theme::WARNING()),
-            )));
-        }
-        lines.push(Line::from(""));
-    } else {
-        let mut vers = format!("Talaria v{}", env!("CARGO_PKG_VERSION"));
-        if !chat.version.is_empty() {
-            vers.push_str(&format!(" · Hermes v{}", chat.version));
-        }
-        lines.push(Line::from(Span::styled(vers, theme::dim())));
-        let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
-        lines.push(Line::from(vec![
-            Span::styled(model.to_string(), theme::tool()),
-            Span::styled(" · Nous Research", theme::dim()),
-        ]));
-        lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
-        lines.push(Line::from(""));
     }
-
     lines.push(Line::from(Span::styled(
-        "Available Tools",
-        theme::tool().add_modifier(Modifier::BOLD),
-    )));
-    if chat.tools.is_empty() {
-        lines.push(Line::from(Span::styled(
-            if chat.gateway_alive {
-                "  scanning tools…"
-            } else {
-                "  (loading)"
-            },
-            theme::dim(),
-        )));
-    } else {
-        append_grouped(&mut lines, &chat.tools, 8);
-    }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Available Skills",
-        theme::tool().add_modifier(Modifier::BOLD),
-    )));
-    if chat.skills.is_empty() {
-        lines.push(Line::from(Span::styled("  (none yet)", theme::dim())));
-    } else {
-        append_grouped(&mut lines, &chat.skills, 8);
-    }
-    lines.push(Line::from(""));
-    let n_tools: usize = chat.tools.iter().map(|(_, v)| v.len()).sum();
-    let n_skills: usize = chat.skills.iter().map(|(_, v)| v.len()).sum();
-    lines.push(Line::from(vec![
-        Span::styled(format!("{n_tools} tools"), theme::text()),
-        Span::styled(" · ", theme::dim()),
-        Span::styled(format!("{n_skills} skills"), theme::text()),
-        Span::styled(" · /help for commands", theme::dim()),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Welcome to Hermes Agent! Type your message or /help for commands.",
+        crate::ui::widgets::tagline(),
         theme::dim(),
     )));
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    lines.push(Line::from(""));
+
+    let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
+    lines.push(Line::from(vec![
+        Span::styled("⚕ ", theme::agent()),
+        Span::styled("Hermes Agent", theme::agent()),
+        Span::styled(" · ", theme::dim()),
+        Span::styled(model.to_string(), theme::text()),
+    ]));
+    if !chat.cwd.is_empty() {
+        lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Ctrl+K", theme::accent()),
+        Span::styled(" palette", theme::dim()),
+        Span::styled("   ", theme::dim()),
+        Span::styled("/", theme::accent()),
+        Span::styled(" commands", theme::dim()),
+        Span::styled("   ", theme::dim()),
+        Span::styled("!", theme::accent()),
+        Span::styled(" shell", theme::dim()),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Talaria is ready.", theme::text())));
+    splash_footer(chat, &mut lines);
+    lines
 }
 
-fn append_grouped(lines: &mut Vec<Line>, groups: &[(String, Vec<String>)], max: usize) {
-    for (name, members) in groups.iter().take(max) {
-        let body = if members.len() > 4 {
-            format!(
-                "{}, +{} more",
-                members
-                    .iter()
-                    .take(3)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                members.len() - 3
-            )
+fn returning_lines(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
+    let mut lines: Vec<Line> = Vec::new();
+    let mut hits: Vec<(u16, u16, usize)> = Vec::new();
+    for _ in 0..EDGE_PAD {
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(Span::styled(
+        "TALARIA",
+        theme::accent().add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        crate::ui::widgets::tagline(),
+        theme::dim(),
+    )));
+    lines.push(Line::from(""));
+
+    let model = chat.model.rsplit('/').next().unwrap_or(&chat.model);
+    lines.push(Line::from(vec![
+        Span::styled("⚕ ", theme::agent()),
+        Span::styled(model.to_string(), theme::text()),
+    ]));
+    if !chat.cwd.is_empty() {
+        lines.push(Line::from(Span::styled(chat.cwd.clone(), theme::dim())));
+    }
+    lines.push(Line::from(""));
+
+    let budget = (area.width as usize).saturating_sub(8).max(12);
+    let recents = chat.recent_for_empty();
+    for (i, s) in recents.iter().enumerate() {
+        let start = lines.len() as u16;
+        let selected = i == chat.recent_selected;
+        let mark = if selected { "▸ " } else { "  " };
+        let num = format!("{}.", i + 1);
+        let title = if s.title.is_empty() {
+            s.id.clone()
         } else {
-            members.join(", ")
+            s.title.clone()
+        };
+        let row = format!("{mark}{num:<3}{}", ellipsize(&title, budget));
+        if selected {
+            lines.push(Line::from(Span::styled(row, theme::selected())));
+        } else {
+            lines.push(Line::from(Span::styled(row, theme::text())));
+        }
+        let preview = if s.preview.is_empty() {
+            format!("{} msgs", s.message_count)
+        } else {
+            s.preview.clone()
         };
         lines.push(Line::from(vec![
-            Span::styled(format!("  {name}: "), theme::user()),
-            Span::styled(body, theme::text()),
+            Span::raw("      "),
+            Span::styled(ellipsize(&preview, budget), theme::dim()),
         ]));
+        hits.push((start, (lines.len() as u16).saturating_sub(start), i));
     }
-    if groups.len() > max {
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("1–3", theme::accent()),
+        Span::styled(" resume", theme::dim()),
+        Span::styled("   ", theme::dim()),
+        Span::styled("Enter", theme::accent()),
+        Span::styled(" open", theme::dim()),
+        Span::styled("   ", theme::dim()),
+        Span::styled("Ctrl+K", theme::accent()),
+        Span::styled(" palette", theme::dim()),
+    ]));
+    splash_footer(chat, &mut lines);
+    (lines, hits)
+}
+
+fn splash_footer(chat: &Chat, lines: &mut Vec<Line<'static>>) {
+    if let Some(v) = &chat.update_available {
         lines.push(Line::from(Span::styled(
-            format!("  (and {} more…)", groups.len() - max),
-            theme::dim(),
+            crate::update::notice_line(v),
+            Style::default().fg(theme::WARNING()),
         )));
     }
+    let mut vers = format!("Talaria v{}", env!("CARGO_PKG_VERSION"));
+    if !chat.version.is_empty() {
+        vers.push_str(&format!(" · Hermes v{}", chat.version));
+    }
+    lines.push(Line::from(Span::styled(vers, theme::dim())));
 }
 
 fn border_style() -> Style {
-    Style::default().fg(theme::INPUT_BORDER())
+    theme::hairline()
+}
+
+fn rule_style() -> Style {
+    theme::accent()
 }
 
 fn b(s: &str) -> Span<'static> {
@@ -537,20 +491,55 @@ fn panel_width(col_w: u16) -> usize {
 /// Official brand mark (staff of Asclepius), same glyph as Hermes CLI `response_label`.
 const RESPONSE_MARK: &str = "⚕";
 
-/// Rounded response panel: `╭─ ⚕ Hermes ───╮` / `│ body │` / `╰───────╯`.
+/// Document turn: mint left rule, gold author. Fill only while streaming.
 fn assistant_card(body: Vec<Line<'static>>, streaming: bool, width: u16) -> Vec<Line<'static>> {
-    rounded_panel(
-        vec![
-            Span::raw(" "),
-            Span::styled(RESPONSE_MARK, theme::accent()),
-            Span::raw(" "),
-            Span::styled("Hermes", theme::accent().add_modifier(Modifier::BOLD)),
-        ],
-        body,
-        panel_width(width),
+    let width = panel_width(width);
+    let inner = width.saturating_sub(2);
+    let mut title = vec![
+        Span::styled("│ ", rule_style()),
+        Span::styled("● ", theme::accent()),
+        Span::styled(RESPONSE_MARK, theme::agent()),
+        Span::raw(" "),
+        Span::styled("Hermes", theme::agent().add_modifier(Modifier::BOLD)),
+    ];
+    if streaming {
+        title.push(Span::styled(" ▍", theme::dim()));
+    }
+    let mut out = vec![paint_card(
+        pad_rule_line(Line::from(title), inner, width),
         streaming,
-        false,
-    )
+    )];
+    if body.is_empty() {
+        let placeholder = if streaming {
+            Line::from(Span::styled("▍", theme::dim()))
+        } else {
+            Line::from("")
+        };
+        out.push(paint_card(rule_row(placeholder, inner, width), streaming));
+    } else {
+        for line in body {
+            for row in wrap_line(line, inner) {
+                out.push(paint_card(rule_row(row, inner, width), streaming));
+            }
+        }
+    }
+    out
+}
+
+fn rule_row(content: Line<'static>, inner: usize, _width: usize) -> Line<'static> {
+    let mut spans = vec![Span::styled("│ ", rule_style())];
+    let content_w = content.width().min(inner);
+    spans.extend(content.spans);
+    spans.push(Span::raw(" ".repeat(inner.saturating_sub(content_w))));
+    Line::from(spans)
+}
+
+fn pad_rule_line(mut line: Line<'static>, inner: usize, _width: usize) -> Line<'static> {
+    let used = line.width().saturating_sub(2);
+    if used < inner {
+        line.spans.push(Span::raw(" ".repeat(inner - used)));
+    }
+    line
 }
 
 fn rounded_panel(
@@ -714,11 +703,11 @@ fn draw_composer(chat: &Chat, f: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::INPUT_BORDER()))
+        .border_style(theme::hairline())
         .style(
             Style::default()
                 .bg(theme::BACKGROUND())
-                .fg(theme::INPUT_BORDER()),
+                .fg(theme::SEPARATOR()),
         );
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -931,15 +920,8 @@ mod tests {
         let vis = visible(&lines);
         assert!(vis[0].contains(RESPONSE_MARK), "{vis:?}");
         assert!(vis[0].contains("Hermes"), "{vis:?}");
-        assert!(vis[0].starts_with('╭'), "{vis:?}");
-        assert!(vis.last().unwrap().starts_with('╰'), "{vis:?}");
-        let w = lines[0].width();
-        assert_eq!(w, 40);
-        assert!(
-            lines.iter().all(|l| l.width() == w),
-            "{:?}",
-            lines.iter().map(|l| l.width()).collect::<Vec<_>>()
-        );
+        assert!(vis.iter().all(|row| row.starts_with('│')), "{vis:?}");
+        assert!(!vis[0].starts_with('╭'), "{vis:?}");
         assert!(vis.iter().any(|row| row.contains("hello")), "{vis:?}");
     }
 
@@ -953,17 +935,78 @@ mod tests {
     }
 
     #[test]
-    fn thinking_panel_keeps_surface_fill() {
+    fn assistant_card_fills_while_streaming() {
+        let lines = assistant_card(vec![Line::from("hello")], true, 40);
+        assert!(
+            lines.iter().all(|l| l.style.bg == Some(theme::SURFACE())),
+            "streaming assistant card uses Talaria surface fill"
+        );
+    }
+
+    #[test]
+    fn splash_is_talaria_host_not_hermes_brochure() {
+        let mut chat = super::super::Chat::new();
+        chat.model = "ox-alpha".into();
+        chat.cwd = "/tmp".into();
+        chat.tools = vec![("core".into(), vec!["terminal".into()])];
+        chat.skills = vec![("dev".into(), vec!["review".into()])];
+        let t = visible(&splash_lines(&chat, Rect::new(0, 0, 40, 12))).join("\n");
+        assert!(t.contains("TALARIA"), "{t}");
+        assert!(t.contains("Native TUI host for Hermes Agent"), "{t}");
+        assert!(t.contains("Talaria is ready."), "{t}");
+        assert!(t.contains("Ctrl+K"), "{t}");
+        assert!(t.contains("Hermes Agent"), "{t}");
+        assert!(t.contains("ox-alpha"), "{t}");
+        assert!(!t.contains("Welcome to Hermes"), "{t}");
+        assert!(!t.contains("Nous Research"), "{t}");
+        assert!(!t.contains("Available Tools"), "{t}");
+        assert!(!t.contains("Available Skills"), "{t}");
+        assert!(!t.contains("CLIENT"), "{t}");
+    }
+
+    #[test]
+    fn returning_splash_lists_sessions_not_brochure() {
+        let mut chat = super::super::Chat::new();
+        chat.model = "ox-alpha".into();
+        chat.cwd = "/tmp".into();
+        chat.recent_sessions = vec![
+            crate::session::SavedSession {
+                id: "a".into(),
+                title: "auth refactor".into(),
+                preview: "jwt middleware".into(),
+                source: "tui".into(),
+                message_count: 12,
+            },
+            crate::session::SavedSession {
+                id: "b".into(),
+                title: "notes".into(),
+                preview: "cargo test".into(),
+                source: "cli".into(),
+                message_count: 4,
+            },
+        ];
+        let t = visible(&splash_lines(&chat, Rect::new(0, 0, 80, 24))).join("\n");
+        assert!(t.contains("TALARIA"), "{t}");
+        assert!(t.contains("auth refactor"), "{t}");
+        assert!(t.contains("notes"), "{t}");
+        assert!(t.contains("1–3"), "{t}");
+        assert!(!t.contains("Talaria is ready."), "{t}");
+        assert!(!t.contains("Welcome to Hermes"), "{t}");
+        assert!(!t.contains("Available Tools"), "{t}");
+    }
+
+    #[test]
+    fn tool_panel_keeps_surface_fill() {
         let lines = rounded_panel(
-            vec![Span::styled(" thinking", theme::dim())],
-            vec![Line::from("hmm")],
+            vec![Span::styled(" terminal", theme::tool())],
+            vec![Line::from("ls")],
             40,
             false,
             true,
         );
         assert!(
             lines.iter().all(|l| l.style.bg == Some(theme::SURFACE())),
-            "thinking/tool panels keep the surface fill"
+            "tool/shell panels keep the surface fill"
         );
     }
 

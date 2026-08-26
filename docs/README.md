@@ -6,10 +6,13 @@ Living documentation for Talaria Client, the unofficial native Rust TUI for Herm
 
 | Doc | Purpose |
 |-----|---------|
-| **[PARITY.md](./PARITY.md)** | **Status SSOT.** What we cover vs `hermes --tui`. |
+| **[PARITY.md](./PARITY.md)** | **Status SSOT.** Agent-job coverage vs `hermes --tui`. Not a visual spec. |
+| **[REDESIGN.md](./REDESIGN.md)** | Chrome / IA implementation plan: better host, not faster clone. |
+| **[POST-DESIGN.md](./POST-DESIGN.md)** | Walkthrough to sign off the redesign. |
+| **[DESIGN-HANDOUT.md](./DESIGN-HANDOUT.md)** | Designer brief (tokens, frames, copy). Visual: [handout.html](./handout.html). |
 | [PLAN.md](./PLAN.md) | Historical architecture discussion. **Not status.** |
-| [PARITY-PLAN.md](./PARITY-PLAN.md) | Remaining tracks vs Ink TUI |
-| [RUNNING.md](./RUNNING.md) | How to run mock / live |
+| [PARITY-PLAN.md](./PARITY-PLAN.md) | Historical Ink leftover tracks. New work follows **REDESIGN.md**. |
+| [RUNNING.md](./RUNNING.md) | How to run mock / live / `cargo run --example gallery` |
 
 **Never create `MIGRATION.md`.** This is a greenfield host, not a port of Ink TSX.
 

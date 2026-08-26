@@ -62,14 +62,15 @@ pub enum ScreenAction {
     InterruptSubagent {
         subagent_id: String,
     },
-    AttachImage {
-        path: String,
+    AttachImages {
+        items: Vec<crate::attachments::Attachment>,
     },
     ClipboardPaste,
     OpenSpawnTrees,
     LoadSpawnTree {
         path: String,
     },
+    SaveSpawnTree,
     OpenRewind,
     Rewind {
         text: String,
@@ -181,14 +182,16 @@ impl std::fmt::Debug for ScreenAction {
                 .debug_struct("InterruptSubagent")
                 .field("subagent_id", subagent_id)
                 .finish(),
-            ScreenAction::AttachImage { path } => {
-                f.debug_struct("AttachImage").field("path", path).finish()
-            }
+            ScreenAction::AttachImages { items } => f
+                .debug_struct("AttachImages")
+                .field("count", &items.len())
+                .finish(),
             ScreenAction::ClipboardPaste => write!(f, "ClipboardPaste"),
             ScreenAction::OpenSpawnTrees => write!(f, "OpenSpawnTrees"),
             ScreenAction::LoadSpawnTree { path } => {
                 f.debug_struct("LoadSpawnTree").field("path", path).finish()
             }
+            ScreenAction::SaveSpawnTree => write!(f, "SaveSpawnTree"),
             ScreenAction::OpenRewind => write!(f, "OpenRewind"),
             ScreenAction::Rewind {
                 truncate_before_row_id,

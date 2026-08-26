@@ -19,6 +19,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+use crate::cli::ResumeSpec;
 use crate::discover;
 use crate::gateway::GatewayClient;
 use crate::logging::log_line;
@@ -124,12 +125,8 @@ fn attach_session(app: &mut App, options: &RunOptions, handle: &tokio::runtime::
         log_line(&format!("session: mock {scenario:?}"));
         let mut mock = MockSession::start(scenario, handle);
         app.events = mock.take_events();
-        mock.send(SessionCommand::Create {
-            cwd: std::env::current_dir()
-                .ok()
-                .map(|p| p.display().to_string()),
-            cols: 80,
-        });
+        mock.send(startup_command(&options.resume, 80));
+        mock.send(SessionCommand::ListSaved { limit: 8 });
         app.session = Some(SessionKind::Mock(mock));
         return;
     }
@@ -146,12 +143,9 @@ fn attach_session(app: &mut App, options: &RunOptions, handle: &tokio::runtime::
                 Ok(client) => {
                     let mut live = GatewaySession::start(client, handle);
                     app.events = live.take_events();
-                    live.send(SessionCommand::Create {
-                        cwd: std::env::current_dir()
-                            .ok()
-                            .map(|p| p.display().to_string()),
-                        cols: 80,
-                    });
+                    log_line(&format!("startup resume: {:?}", options.resume));
+                    live.send(startup_command(&options.resume, 80));
+                    live.send(SessionCommand::ListSaved { limit: 8 });
                     app.session = Some(SessionKind::Live(live));
                 }
                 Err(e) => {
@@ -168,6 +162,21 @@ fn attach_session(app: &mut App, options: &RunOptions, handle: &tokio::runtime::
             let CurrentScreen::Chat(chat) = &mut app.screen;
             chat.apply_event(crate::session::SessionEvent::Error { message: msg });
         }
+    }
+}
+
+fn startup_command(spec: &ResumeSpec, cols: u16) -> SessionCommand {
+    let cwd = std::env::current_dir()
+        .ok()
+        .map(|p| p.display().to_string());
+    match spec {
+        ResumeSpec::Fresh => SessionCommand::Create { cwd, cols },
+        ResumeSpec::Latest => SessionCommand::ResumeLatest { cwd, cols },
+        ResumeSpec::Query(query) => SessionCommand::ResumeQuery {
+            query: query.clone(),
+            cwd,
+            cols,
+        },
     }
 }
 

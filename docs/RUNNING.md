@@ -24,6 +24,17 @@ cargo run -- --dev --mock=subagent
 cargo run -- --dev --mock=error
 ```
 
+## Design gallery
+
+Renders every chrome piece (tokens, document, sheet, inspector, palette, modals)
+on the live theme. Dev-only; not in the `talaria` binary.
+
+```bash
+cargo run --example gallery
+```
+
+↑/↓ move · Enter interact (composer, slash, palette, sheets, inspectors) · `t` cycle skin · `q` quit.
+
 ## Live gateway
 
 Needs a Python that can `import tui_gateway`. After the official installer that is
@@ -37,12 +48,16 @@ the installer finishes.
 # optional: HERMES_PYTHON=/path/to/python
 cargo run --example dump_gateway          # no model
 cargo run --example dump_gateway -- --prompt "Say hi."   # calls your model
-cargo run                                 # TUI
+cargo run                                 # TUI (fresh session)
+cargo run -- --continue                   # most recent saved session
+cargo run -- --resume latest
+cargo run -- --resume "my thread"         # id or title
+TALARIA_RESUME=1 cargo run                # same as --continue
 ```
 
 Logs: `~/.talaria/logs/talaria.log` (always on, 0600). Never writes `~/.hermes`.
 
-Skins: `github` (this host's default) plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`). `/skin` in the TUI (alias `/theme`), or:
+Skins: `talaria` (default, bronze/ink dark) and `talaria-light` (parchment) match the site. GitHub Dark and Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`) stay selectable. `/skin` in the TUI (alias `/theme`), or:
 
 ```bash
 cargo run -- --theme default

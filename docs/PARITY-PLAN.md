@@ -2,6 +2,9 @@
 
 Sequencing for remaining gaps. Status table: [PARITY.md](./PARITY.md).
 
+**New work follows [REDESIGN.md](./REDESIGN.md)** (Talaria objects, not Ink
+screens). This file is the historical leftover-track list vs `hermes --tui`.
+
 **Baseline:** v1 host live against official `tui_gateway` (commit after first dump). Binary is `talaria`.
 
 ## Track A — Transcript fidelity (landed)
@@ -27,6 +30,7 @@ Sequencing for remaining gaps. Status table: [PARITY.md](./PARITY.md).
 
 ## Track D — Cutover (not now)
 
-WebSocket attach, shipping as `hermes`, Homebrew.
+WebSocket attach, shipping as `hermes`. Still out — see [REDESIGN.md](./REDESIGN.md) non-goals. Homebrew already ships.
 
-Update **PARITY.md** when a track lands. Do not add `MIGRATION.md`.
+Update **PARITY.md** when a *capability* lands. Do not add `MIGRATION.md`.
+Do not add Ink widget rows to PARITY because Ink grew a new overlay.

@@ -1,4 +1,7 @@
 //! Native `/model` overlay. Same RPCs as `hermes --tui` ModelPicker.
+//!
+//! Enter writes Hermes `--global` by default (shared with `hermes --tui`).
+//! Ctrl+G opts into `--session` for this run only.
 
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -67,7 +70,7 @@ impl ModelPicker {
             provider_idx: 0,
             model_idx: 0,
             filter: String::new(),
-            persist_global: false,
+            persist_global: true,
             loading: true,
             error: None,
             key_input: String::new(),
@@ -536,10 +539,14 @@ fn provider_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             "Select provider (step 1/2)",
             theme::accent().add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(
-            format!("Current: {}", or_unknown(&picker.current_model)),
-            theme::dim(),
-        )),
+        persist_scope_line(picker.persist_global),
+        Line::from(vec![
+            Span::styled("● ", theme::agent()),
+            Span::styled(
+                or_unknown(&picker.current_model).to_string(),
+                theme::agent(),
+            ),
+        ]),
         Line::from(Span::styled(filter_hint(&picker.filter), theme::dim())),
         Line::from(Span::styled(
             if warning.is_empty() {
@@ -611,17 +618,6 @@ fn provider_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        format!(
-            "persist: {}  ·  ^g toggle",
-            if picker.persist_global {
-                "global"
-            } else {
-                "session"
-            }
-        ),
-        theme::dim(),
-    )));
-    lines.push(Line::from(Span::styled(
         "↑/↓  Enter  ·  ^d disconnect  ·  Esc/q close",
         theme::dim(),
     )));
@@ -639,6 +635,7 @@ fn model_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             "Select model (step 2/2)",
             theme::accent().add_modifier(Modifier::BOLD),
         )),
+        persist_scope_line(picker.persist_global),
         Line::from(Span::styled(format!("{name} · Esc back"), theme::dim())),
         Line::from(Span::styled(filter_hint(&picker.filter), theme::dim())),
     ];
@@ -660,15 +657,18 @@ fn model_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             )));
         }
         for (idx, model) in models.iter().enumerate().skip(offset).take(VISIBLE) {
+            let current = *model == picker.current_model;
             let prefix = if picker.model_idx == idx {
                 "▸ "
-            } else if *model == picker.current_model {
-                "* "
+            } else if current {
+                "● "
             } else {
                 "  "
             };
             let style = if picker.model_idx == idx {
-                theme::accent()
+                theme::accent().add_modifier(Modifier::BOLD)
+            } else if current {
+                theme::agent()
             } else {
                 theme::text()
             };
@@ -684,21 +684,33 @@ fn model_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        format!(
-            "persist: {}  ·  ^g toggle",
-            if picker.persist_global {
-                "global"
-            } else {
-                "session"
-            }
-        ),
-        theme::dim(),
-    )));
-    lines.push(Line::from(Span::styled(
         "↑/↓ select  ·  Enter switch  ·  Esc back",
         theme::dim(),
     )));
     lines
+}
+
+fn persist_scope_line(global: bool) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            " global ",
+            if global {
+                theme::selected()
+            } else {
+                theme::dim()
+            },
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " session ",
+            if !global {
+                theme::selected()
+            } else {
+                theme::dim()
+            },
+        ),
+        Span::styled("  Ctrl+G", theme::dim()),
+    ])
 }
 
 fn filter_hint(filter: &str) -> String {
@@ -771,7 +783,7 @@ mod tests {
             ModelKey::Action(ScreenAction::SetModel { value, .. }) => {
                 assert!(value.contains("openrouter/a"), "{value}");
                 assert!(value.contains("--provider openrouter"), "{value}");
-                assert!(value.contains("--session"), "{value}");
+                assert!(value.contains("--global"), "{value}");
             }
             other => panic!("{other:?}"),
         }
@@ -788,16 +800,42 @@ mod tests {
         assert_eq!(p.stage, ModelStage::Key);
     }
 
+    fn visible(lines: &[Line]) -> String {
+        lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
-    fn ctrl_g_toggles_global_persist() {
+    fn persist_chips_show_active_scope() {
+        let p = picker();
+        let t = visible(&provider_lines(&p));
+        assert!(t.contains("session"), "{t}");
+        assert!(t.contains("global"), "{t}");
+        assert!(t.contains("Ctrl+G"), "{t}");
+        assert!(p.persist_global);
+        let t = visible(&model_lines(&p));
+        assert!(t.contains("global"), "{t}");
+    }
+
+    #[test]
+    fn ctrl_g_opts_into_session_only() {
         let mut p = picker();
+        assert!(p.persist_global);
         p.stage = ModelStage::Model;
         let key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL);
         on_key(&mut p, key);
-        assert!(p.persist_global);
+        assert!(!p.persist_global);
         match on_key(&mut p, KeyEvent::from(KeyCode::Enter)) {
             ModelKey::Action(ScreenAction::SetModel { value, .. }) => {
-                assert!(value.contains("--global"), "{value}");
+                assert!(value.contains("--session"), "{value}");
             }
             other => panic!("{other:?}"),
         }

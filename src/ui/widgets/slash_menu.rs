@@ -38,6 +38,10 @@ impl SlashMenu {
         self.scroll = 0;
     }
 
+    pub fn commands(&self) -> &[SlashItem] {
+        &self.commands
+    }
+
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }

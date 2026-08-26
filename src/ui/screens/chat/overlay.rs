@@ -23,6 +23,7 @@ pub enum SessionTab {
 }
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 pub enum Overlay {
     #[default]
     None,
@@ -51,6 +52,7 @@ pub enum Overlay {
         prompt: String,
         draft: String,
     },
+    #[allow(dead_code)]
     Sessions {
         tab: SessionTab,
         saved: Vec<SavedSession>,
@@ -59,6 +61,7 @@ pub enum Overlay {
         loading: bool,
         notice: Option<String>,
     },
+    #[allow(dead_code)]
     Help,
     Agents {
         agents: Vec<SubagentRow>,
@@ -67,11 +70,13 @@ pub enum Overlay {
         steering: bool,
         draft: String,
     },
+    #[allow(dead_code)]
     Usage {
         loading: bool,
         snapshot: Option<UsageSnapshot>,
         error: Option<String>,
     },
+    #[allow(dead_code)]
     SpawnTrees {
         entries: Vec<SpawnTreeEntry>,
         selected: usize,
@@ -472,6 +477,9 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                     return Some(ScreenAction::LoadSpawnTree { path });
                 }
             }
+            if matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')) {
+                return Some(ScreenAction::SaveSpawnTree);
+            }
             None
         }
         Overlay::Rewind {
@@ -859,7 +867,7 @@ pub fn draw_overlay(
                 )));
             }
             lines.push(Line::from(Span::styled(
-                "Native Rust TUI for Hermes Agent",
+                "Native TUI host for Hermes Agent",
                 theme::dim(),
             )));
             if let Some(v) = update {
@@ -871,6 +879,7 @@ pub fn draw_overlay(
             lines.extend([
                 Line::from(""),
                 Line::from("Enter            send (steer if a turn is running)"),
+                Line::from("Ctrl+Enter       queue follow-up (sends after this turn)"),
                 Line::from("!cmd             local shell (confirms first; no model turn)"),
                 Line::from("Shift+Enter      newline"),
                 Line::from("/                command catalog"),
@@ -878,31 +887,33 @@ pub fn draw_overlay(
                 Line::from("Ctrl+C then y    quit"),
                 Line::from("PageUp/Down      scroll transcript"),
                 Line::from(""),
+                Line::from("/new                   new session"),
+                Line::from("/clear                 wipe the view (not a new session)"),
                 Line::from("/sessions  /resume     saved vs live sessions"),
                 Line::from("/branch                fork this session"),
                 Line::from("/agents                subagents (Enter kill · s steer)"),
                 Line::from("/usage                 tokens and cost"),
                 Line::from("/custom                toggle status bar and key hints"),
-                Line::from("/trees                 spawn-tree snapshots"),
+                Line::from("/trees                 spawn-tree snapshots (s save)"),
                 Line::from("/rewind               regenerate from a user turn (row_id)"),
                 Line::from("/model                provider + model picker"),
                 Line::from("/skills  /plugins     install / toggle"),
                 Line::from("/mcp                  add / remove MCP servers"),
-                Line::from("/skin                 github / default / ares / …"),
+                Line::from("/skin                 talaria / talaria-light / github / …"),
                 Line::from("/copy  /copy N    last response (or Nth-latest)"),
                 Line::from("/copy file        write last response to a file"),
                 Line::from("/clear  /quit"),
                 Line::from("drag             highlight transcript to copy"),
                 Line::from("Ctrl+O / click   expand a tool card"),
-                Line::from("Ctrl+V           paste clipboard image (gateway)"),
+                Line::from("Ctrl+V           paste text, or clipboard image if none"),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Paste a path ending in .png/.jpg/.webp to attach.",
+                    "Drop or paste an image path to attach it as [Image #n].",
                     theme::dim(),
                 )),
                 Line::from(Span::styled("Esc or Enter closes this help.", theme::dim())),
             ]);
-            let h = 27 + u16::from(update.is_some()) + u16::from(hermes.is_some());
+            let h = 30 + u16::from(update.is_some()) + u16::from(hermes.is_some());
             paint_modal(f, area, " help ", lines, h);
         }
         Overlay::Agents {
@@ -1017,7 +1028,10 @@ pub fn draw_overlay(
             loading,
         } => {
             let mut lines = vec![
-                Line::from(Span::styled("Enter loads the selected tree", theme::dim())),
+                Line::from(Span::styled(
+                    "Enter loads  ·  s saves current tree",
+                    theme::dim(),
+                )),
                 Line::from(""),
             ];
             if *loading {

@@ -11,6 +11,7 @@ use crate::theme;
 
 pub struct Meter {
     pub model: String,
+    pub git_branch: String,
     pub usage: UsageSnapshot,
     pub session: Duration,
     pub turn: Option<Duration>,
@@ -19,6 +20,8 @@ pub struct Meter {
     pub right: String,
     /// Live spinner glyph (thinking / streaming / tools).
     pub spinner: Option<&'static str>,
+    /// Last model write used Hermes `--global`.
+    pub model_global: bool,
 }
 
 pub fn line(meter: &Meter, width: u16) -> Line<'static> {
@@ -29,6 +32,12 @@ pub fn line(meter: &Meter, width: u16) -> Line<'static> {
         left.push(Seg::text(g, theme::accent()));
     }
     left.push(Seg::text(model, theme::accent()));
+    if meter.model_global {
+        left.push(Seg::text("global", theme::agent()));
+    }
+    if !meter.git_branch.is_empty() {
+        left.push(Seg::text(format!("({})", meter.git_branch), theme::dim()));
+    }
 
     if meter.usage.context_max > 0 {
         left.push(Seg::text(
@@ -255,9 +264,33 @@ mod tests {
     }
 
     #[test]
+    fn meter_shows_global_when_persisted() {
+        let meter = Meter {
+            model: "ox-alpha".into(),
+            git_branch: String::new(),
+            usage: UsageSnapshot::default(),
+            session: Duration::from_secs(1),
+            turn: None,
+            turn_live: false,
+            idle: None,
+            right: String::new(),
+            spinner: None,
+            model_global: true,
+        };
+        let t: String = line(&meter, 40)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(t.contains("ox-alpha"), "{t}");
+        assert!(t.contains("global"), "{t}");
+    }
+
+    #[test]
     fn meter_keeps_model_on_narrow() {
         let meter = Meter {
             model: "stealth/ox-alpha".into(),
+            git_branch: String::new(),
             usage: UsageSnapshot {
                 context_used: 25_700,
                 context_max: 1_000_000,
@@ -270,6 +303,7 @@ mod tests {
             idle: Some(Duration::from_secs(8 * 3600 + 32 * 60)),
             right: "Get assistant name".into(),
             spinner: None,
+            model_global: false,
         };
         let wide = line(&meter, 120);
         let text: String = wide.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -290,6 +324,7 @@ mod tests {
     fn meter_spinner_sits_before_model() {
         let meter = Meter {
             model: "ox-alpha".into(),
+            git_branch: String::new(),
             usage: UsageSnapshot::default(),
             session: Duration::from_secs(1),
             turn: None,
@@ -297,6 +332,7 @@ mod tests {
             idle: None,
             right: String::new(),
             spinner: Some("◐"),
+            model_global: false,
         };
         let text: String = line(&meter, 40)
             .spans

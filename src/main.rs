@@ -25,6 +25,11 @@ fn main() {
         verbose: cli.verbose,
         theme: cli.theme.clone(),
         force: cli.force,
+        resume: talaria::cli::ResumeSpec::resolve(
+            cli.r#continue,
+            cli.resume.as_deref(),
+            std::env::var("TALARIA_RESUME").ok().as_deref(),
+        ),
     }) {
         eprintln!("{e}");
         std::process::exit(1);

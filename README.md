@@ -95,14 +95,14 @@ cargo run --example dump_gateway -- --prompt hi  # calls your configured model
 
 | | |
 |---|---|
-| **Splash** | ANSI Shadow `TALARIA - CLIENT` wordmark, Braille caduceus, live tools/skills from `session.info` |
+| **Splash** | First run: `TALARIA` wordmark + tagline. Returning: last three sessions (`1–3` resume) |
 | **Chat** | Streaming deltas, markdown on completed turns, thinking blocks |
 | **Tools** | Collapsed cards; **Ctrl+O** expands args/result (secrets redacted) |
 | **Approvals** | Approval / clarify / sudo / secret overlays |
 | **Slash** | Catalog from the gateway; drop-up palette on `/` |
 | **Sessions** | `/sessions` saved vs live; `/branch`; `/rewind` (row_id + `confirm_truncate`) |
 | **Steer** | Enter while a turn is running sends `session.steer` |
-| **Skins** | `github` plus Hermes builtins (`default`, `ares`, `mono`, `slate`, `daylight`, `warm-lightmode`, `poseidon`, `sisyphus`, `charizard`) — `/skin` |
+| **Skins** | Default `talaria` / `talaria-light` (site pair). GitHub Dark and Hermes builtins stay on `/skin` |
 
 Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 
@@ -111,15 +111,17 @@ Full matrix: **[docs/PARITY.md](docs/PARITY.md)** (status SSOT).
 | Key | |
 |-----|---|
 | **Enter** | Send (or steer if a turn is running) |
+| **Ctrl+Enter** | Queue a follow-up (sends after this turn) |
 | **Shift+Enter** / **Alt+Enter** | Newline (box grows) |
-| **/** | Command palette |
+| **Ctrl+K** / **Ctrl+P** | Command palette (host actions + catalog) |
+| **/** | Slash catalog |
 | **Esc** | Interrupt · dismiss overlay |
-| **Ctrl+O** | Expand last tool card |
+| **Ctrl+O** | Tool inspector |
 | **Drag** | Highlight transcript text to copy |
-| **Ctrl+V** | Clipboard image (`clipboard.paste`) |
+| **Ctrl+V** | Paste text; if none, clipboard image (`clipboard.paste`) |
 | **Ctrl+C** | Quit (confirm) |
 
-Slash: `/help` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/usage` `/custom` `/copy` `/trees` `/model` `/skills` `/plugins` `/mcp` `/skin` `/clear` `/quit`.
+Slash: `/help` `/new` `/clear` `/sessions` `/resume` `/rewind` `/branch` `/agents` `/usage` `/custom` `/copy` `/trees` `/model` `/skills` `/plugins` `/mcp` `/skin` `/quit`. Resume on launch: `talaria --continue` / `--resume <id-or-title>` / `TALARIA_RESUME=1`.
 
 ---
 
@@ -147,7 +149,7 @@ On disk this process only writes **`~/.talaria/`** (logs, composer history, save
 | **[Site](https://inaki.github.io/talaria/)** | GitHub Pages landing |
 | **[NOTICE.md](NOTICE.md)** | Unofficial status, names, credits |
 | **[PARITY.md](docs/PARITY.md)** | What we cover vs `hermes --tui` |
-| [RUNNING.md](docs/RUNNING.md) | Mock vs live, themes, dumps |
+| [RUNNING.md](docs/RUNNING.md) | Mock vs live, themes, dumps, gallery |
 | [docs/README.md](docs/README.md) | Index |
 
 Official Hermes: [hermes-agent](https://github.com/NousResearch/hermes-agent) · [docs](https://hermes-agent.nousresearch.com/docs/) · [programmatic integration](https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration) (`tui_gateway`).

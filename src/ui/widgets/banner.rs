@@ -1,4 +1,4 @@
-//! Talaria splash: ANSI Shadow wordmark plus the Hermes caduceus.
+//! Talaria splash: ANSI Shadow wordmark. Caduceus is Hermes Agent’s mark, not the hero.
 //!
 //! **Wordmark:** live FIGlet font **ANSI Shadow** via [`crate::ui::widgets::big_text`].
 //!
@@ -36,13 +36,13 @@ const CADUCEUS_GRADIENT: &[u8] = &[2, 2, 1, 1, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3];
 /// Ink `LOGO_GRADIENT` for the six ANSI Shadow rows.
 const LOGO_GRADIENT: &[u8] = &[0, 0, 1, 1, 2, 2];
 
-const TAGLINE: &str = "Native Rust TUI for Hermes Agent";
+const TAGLINE: &str = "Native TUI host for Hermes Agent";
 
 fn tone(i: u8) -> Style {
     match i {
-        0 => theme::accent(),
-        1 => theme::tool(),
-        2 => Style::default().fg(theme::INPUT_BORDER()),
+        0 => theme::agent(),
+        1 => theme::accent(),
+        2 => theme::dim(),
         _ => theme::dim(),
     }
 }
@@ -57,9 +57,9 @@ fn colorize(art: &[&str], gradient: &[u8]) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// `TALARIA - CLIENT` wordmark: live ANSI Shadow, else a plain title.
+/// `TALARIA` wordmark: live ANSI Shadow, else a plain title.
 pub fn logo_lines() -> Vec<Line<'static>> {
-    let generated = big_text::render_ansi_shadow("TALARIA - CLIENT");
+    let generated = big_text::render_ansi_shadow("TALARIA");
     if generated.len() >= 5 {
         let g = LOGO_GRADIENT;
         return generated
@@ -71,7 +71,7 @@ pub fn logo_lines() -> Vec<Line<'static>> {
             })
             .collect();
     }
-    vec![Line::from(Span::styled("TALARIA - CLIENT", tone(0)))]
+    vec![Line::from(Span::styled("TALARIA", tone(0)))]
 }
 
 pub fn caduceus_lines() -> Vec<Line<'static>> {
@@ -110,19 +110,23 @@ mod tests {
     fn tagline_does_not_claim_nous() {
         let t = tagline();
         assert!(t.contains("Hermes Agent"), "{t}");
-        assert!(t.to_ascii_lowercase().contains("rust"), "{t}");
+        assert!(t.to_ascii_lowercase().contains("host"), "{t}");
         assert!(!t.contains("Nous Research"), "{t}");
         assert!(!t.contains("Digital Gods"), "{t}");
+        assert!(!t.contains("Welcome to Hermes"), "{t}");
     }
 
     #[test]
     fn logo_is_talaria() {
-        let generated = big_text::render_ansi_shadow("TALARIA - CLIENT");
+        let generated = big_text::render_ansi_shadow("TALARIA");
         assert!(
             generated.len() >= 5,
-            "expected a multi-row TALARIA - CLIENT wordmark, got {generated:?}"
+            "expected a multi-row TALARIA wordmark, got {generated:?}"
         );
         let lines = logo_lines();
         assert!(!lines.is_empty());
+        let joined = generated.join("\n");
+        assert!(!joined.contains("CLIENT"), "{joined}");
+        assert!(!joined.contains("AGENT"), "{joined}");
     }
 }

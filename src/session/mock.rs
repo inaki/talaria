@@ -133,6 +133,13 @@ async fn mock_loop(
                                 source: "cli".into(),
                                 message_count: 3,
                             },
+                            SavedSession {
+                                id: "sess-gamma".into(),
+                                title: "Planning".into(),
+                                preview: "phase B returning workspace".into(),
+                                source: "tui".into(),
+                                message_count: 9,
+                            },
                         ],
                     })
                     .await;
@@ -149,36 +156,22 @@ async fn mock_loop(
                     })
                     .await;
             }
+            SessionCommand::ResumeLatest { .. } => {
+                mock_resume(&ev_tx, "sess-alpha").await;
+            }
+            SessionCommand::ResumeQuery { query, .. } => {
+                let id = if query == "sess-beta" || query.eq_ignore_ascii_case("cli notes") {
+                    "sess-beta"
+                } else {
+                    "sess-alpha"
+                };
+                mock_resume(&ev_tx, id).await;
+            }
             SessionCommand::Resume {
                 session_id: sid, ..
             }
             | SessionCommand::Activate { session_id: sid } => {
-                let _ = ev_tx
-                    .send(SessionEvent::Transcript {
-                        session_id: sid.clone(),
-                        messages: vec![
-                            TranscriptMessage {
-                                role: "user".into(),
-                                text: format!("(resumed {sid})"),
-                                row_id: Some(11),
-                                display_kind: None,
-                            },
-                            TranscriptMessage {
-                                role: "assistant".into(),
-                                text: "Welcome back. This is mock history.".into(),
-                                row_id: Some(12),
-                                display_kind: None,
-                            },
-                        ],
-                    })
-                    .await;
-                let _ = ev_tx
-                    .send(SessionEvent::SessionCreated {
-                        session_id: sid.clone(),
-                        stored_session_id: Some(sid),
-                        info: Some(json!({"model": "mock-model"})),
-                    })
-                    .await;
+                mock_resume(&ev_tx, &sid).await;
             }
             SessionCommand::Dispatch { command } => {
                 let _ = ev_tx
@@ -239,9 +232,9 @@ async fn mock_loop(
                     )))
                     .await;
             }
-            SessionCommand::AttachImage { path } => {
+            SessionCommand::AttachImage { path, label } => {
                 let _ = ev_tx
-                    .send(SessionEvent::Status(format!("attached {path}")))
+                    .send(SessionEvent::Status(format!("{label} attached · {path}")))
                     .await;
             }
             SessionCommand::ClipboardPaste => {
@@ -263,6 +256,22 @@ async fn mock_loop(
             SessionCommand::LoadSpawnTree { path } => {
                 let _ = ev_tx
                     .send(SessionEvent::Status(format!("loaded {path} (mock)")))
+                    .await;
+            }
+            SessionCommand::SaveSpawnTree => {
+                let _ = ev_tx
+                    .send(SessionEvent::Status(
+                        "saved spawn tree mock-tree.json".into(),
+                    ))
+                    .await;
+                let _ = ev_tx
+                    .send(SessionEvent::SpawnTrees {
+                        entries: vec![SpawnTreeEntry {
+                            path: "mock-tree.json".into(),
+                            label: "mock run".into(),
+                            count: 2,
+                        }],
+                    })
                     .await;
             }
             SessionCommand::FetchHistory => {
@@ -486,6 +495,38 @@ async fn mock_loop(
             _ => {}
         }
     }
+}
+
+async fn mock_resume(ev_tx: &mpsc::Sender<SessionEvent>, sid: &str) {
+    let _ = ev_tx
+        .send(SessionEvent::Status(format!("resumed {sid}")))
+        .await;
+    let _ = ev_tx
+        .send(SessionEvent::Transcript {
+            session_id: sid.to_string(),
+            messages: vec![
+                TranscriptMessage {
+                    role: "user".into(),
+                    text: format!("(resumed {sid})"),
+                    row_id: Some(11),
+                    display_kind: None,
+                },
+                TranscriptMessage {
+                    role: "assistant".into(),
+                    text: "Welcome back. This is mock history.".into(),
+                    row_id: Some(12),
+                    display_kind: None,
+                },
+            ],
+        })
+        .await;
+    let _ = ev_tx
+        .send(SessionEvent::SessionCreated {
+            session_id: sid.to_string(),
+            stored_session_id: Some(sid.to_string()),
+            info: Some(json!({"model": "mock-model"})),
+        })
+        .await;
 }
 
 fn mock_model_options() -> SessionEvent {

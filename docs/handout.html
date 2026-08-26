@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Talaria — design handout</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f5f0e8;
+      --dot: #e0d5c2;
+      --ink: #2c1810;
+      --ink-soft: #5c4632;
+      --muted: #7d6549;
+      --card: #fffdf7;
+      --panel: #f5efe2;
+      --rule: #c9b191;
+      --hair: #e0d5c2;
+      --band: #e8dcc8;
+      --teal: #0f766e;
+      --teal-dark: #0b5c56;
+      --gold: #f0c85a;
+      --bronze: #8b6914;
+      --rust: #8b4513;
+      --orange: #c44300;
+      --green: #2e7d32;
+      --danger: #c62828;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: Archivo, system-ui, sans-serif;
+      --shadow: 4px 4px 0 var(--ink);
+      /* TUI dark twin — espresso / mint / gold */
+      --d-canvas: #141210;
+      --d-card: #1c1916;
+      --d-chip: #1c1916;
+      --d-text: #c5c1b8;
+      --d-dim: #6e7772;
+      --d-accent: #7ecdc4;
+      --d-agent: #c4a14a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); }
+    body {
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.5;
+      background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .page { padding: 0 32px 96px; }
+    .wrap { max-width: 1080px; margin: 0 auto; }
+    a { color: var(--teal); text-decoration: none; border-bottom: 1.5px solid rgba(15,118,110,.35); }
+    a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+    h1 { font-size: clamp(36px, 7vw, 64px); line-height: .98; letter-spacing: -.035em; font-weight: 800; margin: 0 0 18px; }
+    h2 { font-size: 22px; margin: 56px 0 16px; letter-spacing: -.02em; }
+    h3 { font-size: 15px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; margin: 28px 0 10px; }
+    p.lede { font-size: 20px; color: var(--ink-soft); max-width: 42em; margin: 0 0 28px; }
+    .kicker {
+      display: inline-flex; gap: 8px; align-items: center;
+      font-family: var(--mono); font-size: 11.5px; letter-spacing: .11em;
+      border: 2px solid var(--ink); background: var(--gold); padding: 6px 12px;
+      box-shadow: 3px 3px 0 var(--ink); margin-bottom: 28px;
+    }
+    .mantra {
+      font-family: var(--mono); font-size: 14px; line-height: 1.7;
+      background: var(--card); border: 2px solid var(--ink); padding: 18px 22px;
+      box-shadow: var(--shadow); margin: 28px 0;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 12px 0 24px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+    th { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+    code { font-family: var(--mono); font-size: .9em; }
+    .top {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: 16px; padding: 22px 0; border-bottom: 2px solid var(--ink); flex-wrap: wrap;
+    }
+    .brand { font-family: var(--mono); font-weight: 700; letter-spacing: .16em; font-size: 14px; }
+    .brand span { color: var(--muted); font-weight: 400; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+
+    .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 24px; }
+    .swatch { width: 112px; }
+    .chip {
+      height: 44px; border: 2px solid var(--ink); margin-bottom: 6px;
+    }
+    .swatch label { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; display: block; }
+    .swatch .hex { color: var(--muted); }
+
+    .term {
+      border: 2px solid var(--ink); box-shadow: 8px 8px 0 var(--ink);
+      background: var(--bg); margin: 12px 0 28px; overflow: hidden;
+    }
+    .term.dark { background: var(--d-canvas); color: var(--d-text); box-shadow: 8px 8px 0 #000; }
+    .term-bar {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      background: var(--teal); border-bottom: 2px solid var(--ink); color: var(--bg);
+      font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
+    }
+    .term.dark .term-bar { background: #0b5c56; }
+    .pips { display: flex; gap: 5px; }
+    .pips span { width: 11px; height: 11px; border: 1.5px solid var(--ink); background: var(--gold); display: block; }
+    .term-body {
+      font-family: var(--mono); font-size: 13px; line-height: 1.55;
+      padding: 16px 18px 14px; min-height: 220px; position: relative;
+    }
+    .term.dark .term-body { background: var(--d-canvas); }
+    .dim { color: var(--muted); }
+    .term.dark .dim { color: var(--d-dim); }
+    .teal { color: var(--teal); font-weight: 700; }
+    .term.dark .teal { color: var(--d-accent); }
+    .bronze { color: var(--bronze); }
+    .term.dark .bronze { color: var(--d-agent); }
+    .user { color: #5c3d11; font-weight: 700; }
+    .term.dark .user { color: #e8dcc8; }
+    .tool { color: var(--rust); }
+    .term.dark .tool { color: #e8a87c; }
+    .card {
+      border: 1px solid var(--bronze); margin: 6px 0 10px; padding: 4px 8px 6px;
+      background: var(--card);
+    }
+    .term.dark .card { border-color: var(--d-agent); background: var(--d-card); }
+    .chip-line {
+      display: inline-block; border: 1px solid var(--rule); background: var(--panel);
+      padding: 1px 8px; margin: 4px 0 12px; color: var(--rust);
+    }
+    .term.dark .chip-line { background: var(--d-chip); border-color: var(--d-dim); color: #e8a87c; }
+    .composer {
+      border: 1px solid var(--bronze); background: var(--card); padding: 6px 10px; margin-top: 10px;
+    }
+    .term.dark .composer { border-color: var(--d-dim); background: var(--d-card); }
+    .hints { margin-top: 8px; font-size: 12px; }
+    .hints b { color: var(--teal); font-weight: 700; }
+    .term.dark .hints b { color: var(--d-accent); }
+    .sheet {
+      position: absolute; right: 16px; bottom: 72px; width: 280px;
+      background: var(--card); border: 2px solid var(--ink); padding: 8px 10px;
+      box-shadow: 4px 4px 0 var(--ink); font-size: 12.5px;
+    }
+    .term.dark .sheet { background: var(--d-card); box-shadow: 4px 4px 0 #000; border-color: var(--d-dim); }
+    .sheet .sel { background: var(--band); }
+    .term.dark .sheet .sel { background: #3a2a18; }
+    .float {
+      position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+      width: min(420px, 88%); background: var(--card); border: 2px solid var(--ink);
+      padding: 10px 12px; box-shadow: 6px 6px 0 var(--ink); font-size: 12.5px;
+    }
+    .term.dark .float { background: var(--d-card); border-color: var(--d-agent); box-shadow: 6px 6px 0 #000; }
+    .danger { color: var(--danger); }
+    .caption { font-size: 13px; color: var(--ink-soft); margin: -16px 0 32px; }
+    .dont {
+      border-left: 4px solid var(--danger); padding: 8px 14px; background: #fce8e6; margin: 8px 0;
+    }
+    .do {
+      border-left: 4px solid var(--green); padding: 8px 14px; background: #e7f3e8; margin: 8px 0;
+    }
+    .note { font-size: 13.5px; color: var(--ink-soft); max-width: 46em; }
+    footer { border-top: 2px solid var(--ink); padding-top: 20px; margin-top: 64px;
+      font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+    @media print {
+      body { background: #fff; background-image: none; }
+      .page { padding: 0; }
+      .term { break-inside: avoid; box-shadow: none; }
+      h2 { break-after: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="wrap">
+      <div class="top">
+        <div class="brand">TALARIA <span>DESIGN HANDOUT</span></div>
+        <div class="brand"><span>2026-08-25 · unofficial host</span></div>
+      </div>
+
+      <p class="kicker">FOR DESIGNERS · NOT AN INK PORT</p>
+      <h1>Better host,<br>not faster clone.</h1>
+      <p class="lede">Talaria is a native terminal UI that hosts Hermes Agent. We cover the agent’s jobs with our own chrome — quieter, searchable, aligned with the marketing site. If a mock looks like official Hermes with a TALARIA sticker, it is wrong.</p>
+
+      <div class="mantra">
+        Talaria is the frame.<br>
+        Hermes is the speaker.<br>
+        The transcript is a document.<br>
+        Management is sheets.<br>
+        Danger is modals.<br>
+        Slash is power.<br>
+        The palette is discovery.
+      </div>
+      <p class="note">Full spec (tokens, copy deck, do/don’t): <a href="./DESIGN-HANDOUT.md">DESIGN-HANDOUT.md</a>. Engineering plan: <a href="./REDESIGN.md">REDESIGN.md</a>. Names: <a href="../NOTICE.md">NOTICE.md</a>.</p>
+
+      <h2>Two brands, one canvas</h2>
+      <div class="grid2">
+        <div>
+          <h3>Talaria owns</h3>
+          <p>Frame, composer, meter, sheets, modals, palette, wordmark <strong>TALARIA</strong>, default skin (parchment + teal).</p>
+        </div>
+        <div>
+          <h3>Hermes owns</h3>
+          <p>The voice in the transcript. Caduceus and ⚕ are <em>agent</em> marks, never our logo. Models, tools, <code>~/.hermes</code>.</p>
+        </div>
+      </div>
+      <div class="dont"><strong>Never:</strong> “TALARIA - CLIENT”, “Welcome to Hermes Agent!”, “Messenger of the Digital Gods”, caduceus as hero, Nous on the splash.</div>
+      <div class="do"><strong>Always:</strong> “Native TUI host for Hermes Agent”. Unofficial. Binary is <code>talaria</code>.</div>
+
+      <h2>Medium</h2>
+      <p class="note">This is a terminal grid, not a web app. Design at <strong>100×32</strong> cells; must work at <strong>80×24</strong>. Monospace only. No drop shadows, blur, or images in the TUI. Website (Archivo, ink shadow, dots) is the marketing twin — borrow palette and attitude, not CSS chrome.</p>
+
+      <h2>Tokens — light (default)</h2>
+      <p class="note">Same family as the site. Teal is ours. Bronze/gold is theirs. Gold is a badge, never body text.</p>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#f5f0e8"></div><label>canvas</label><span class="hex">#f5f0e8</span></div>
+        <div class="swatch"><div class="chip" style="background:#fffdf7"></div><label>card</label><span class="hex">#fffdf7</span></div>
+        <div class="swatch"><div class="chip" style="background:#f5efe2"></div><label>chip</label><span class="hex">#f5efe2</span></div>
+        <div class="swatch"><div class="chip" style="background:#2c1810"></div><label>text</label><span class="hex">#2c1810</span></div>
+        <div class="swatch"><div class="chip" style="background:#7d6549"></div><label>text-dim</label><span class="hex">#7d6549</span></div>
+        <div class="swatch"><div class="chip" style="background:#0f766e"></div><label>accent</label><span class="hex">#0f766e</span></div>
+        <div class="swatch"><div class="chip" style="background:#8b6914"></div><label>agent</label><span class="hex">#8b6914</span></div>
+        <div class="swatch"><div class="chip" style="background:#8b4513"></div><label>tool</label><span class="hex">#8b4513</span></div>
+        <div class="swatch"><div class="chip" style="background:#c62828"></div><label>danger</label><span class="hex">#c62828</span></div>
+        <div class="swatch"><div class="chip" style="background:#f0c85a"></div><label>gold badge</label><span class="hex">#f0c85a</span></div>
+      </div>
+
+      <h2>Tokens — dark twin</h2>
+      <p class="note">Not GitHub Dark. Same parchment story, inverted.</p>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#1a120c;border-color:#1a120c"></div><label>canvas</label><span class="hex">#1a120c</span></div>
+        <div class="swatch"><div class="chip" style="background:#241810;border-color:#1a120c"></div><label>card</label><span class="hex">#241810</span></div>
+        <div class="swatch"><div class="chip" style="background:#2dd4bf"></div><label>accent</label><span class="hex">#2dd4bf</span></div>
+        <div class="swatch"><div class="chip" style="background:#f0c85a"></div><label>agent</label><span class="hex">#f0c85a</span></div>
+        <div class="swatch"><div class="chip" style="background:#f5f0e8"></div><label>text</label><span class="hex">#f5f0e8</span></div>
+        <div class="swatch"><div class="chip" style="background:#a0845c"></div><label>text-dim</label><span class="hex">#a0845c</span></div>
+      </div>
+
+      <h2>1 · First run</h2>
+      <p class="note">Quiet. Composer focused. No tool inventory, no FIGlet, no caduceus wall.</p>
+      <div class="term">
+        <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> talaria · first run</div>
+        <div class="term-body">
+          <div class="teal" style="letter-spacing:.2em;font-size:15px;margin-bottom:10px;">TALARIA</div>
+          <div class="dim">Native TUI host for Hermes Agent</div>
+          <div class="dim" style="margin-bottom:36px;">ox-alpha  ·  Hermes Agent v0.1.6</div>
+          <div class="composer"><span class="teal">›</span> <span class="dim">_</span></div>
+          <div class="hints"><b>Ctrl+K</b> palette &nbsp; <b>/</b> commands &nbsp; <b>!</b> shell</div>
+        </div>
+      </div>
+      <p class="caption">Empty space is a feature. Do not fill it with tools.</p>
+
+      <h2>2 · Returning</h2>
+      <p class="note">A door, not a brochure. Enter resumes the selected thread.</p>
+      <div class="term">
+        <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> talaria · returning</div>
+        <div class="term-body">
+          <div class="dim" style="margin-bottom:10px;">Continue</div>
+          <div style="background:var(--band);padding:4px 8px;margin:0 -8px;">
+            <span class="teal">▸</span> <strong>auth refactor</strong>
+            <span class="dim" style="float:right">12 turns · yesterday</span><br>
+            <span class="dim">ox-alpha  ·  ~/proj/api</span>
+          </div>
+          <div style="padding:6px 8px;margin:0 -8px;">
+            notes <span class="dim" style="float:right">4 turns · Mon</span><br>
+            <span class="dim">ox-alpha  ·  ~/notes</span>
+          </div>
+          <div class="dim" style="padding:8px 8px 16px;">+ new session</div>
+          <div class="composer"><span class="teal">›</span> <span class="dim">_</span></div>
+          <div class="hints"><b>Enter</b> resume &nbsp; <b>Ctrl+K</b> &nbsp; <b>/</b> sessions</div>
+        </div>
+      </div>
+
+      <h2>3 · Document</h2>
+      <p class="note">One type system. Hermes is the author inside a Talaria card. Tools are chips — no help sentences in the log.</p>
+      <div class="term">
+        <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> talaria · chat</div>
+        <div class="term-body">
+          <div><span class="user">you</span>  How does session.resume work?</div>
+          <div class="card">
+            <span class="bronze">⚕ Hermes</span>
+            <div style="margin-top:4px;">session.resume loads a saved transcript by id. The gateway returns the messages; Talaria renders them as this document.</div>
+          </div>
+          <div class="chip-line">▸ session.list  ·  done   3 saved</div>
+          <div><span class="user">you</span>  show me the ids</div>
+          <div class="card">
+            <span class="bronze">⚕ Hermes</span> <span class="dim">▍</span>
+            <div style="margin-top:4px;">20260822_000000_aa11bb</div>
+          </div>
+          <div class="dim" style="margin-top:14px;">ox-alpha &nbsp; ⏱ 12s <span style="float:right">resume ids</span></div>
+          <div class="composer"><span class="teal">›</span> <span class="dim">_</span></div>
+          <div class="hints"><b>Enter</b> steer &nbsp; <b>Esc</b> interrupt &nbsp; <b>Ctrl+Enter</b> queue</div>
+        </div>
+      </div>
+      <p class="caption">Enter steers while live. Queue is a second verb. Do not copy Ink’s Enter = queue.</p>
+
+      <h2>4 · Sheet (non-blocking)</h2>
+      <p class="note">Management while the agent still streams. Search + list + footer verbs. Same skeleton for model, skills, MCP, agents, trees.</p>
+      <div class="term" style="position:relative;">
+        <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> talaria · sheet</div>
+        <div class="term-body">
+          <div class="card">
+            <span class="bronze">⚕ Hermes</span> <span class="dim">▍</span>
+            <div class="dim" style="margin-top:4px;">(tokens still arriving)</div>
+          </div>
+          <div class="dim" style="margin-top:48px;">ox-alpha &nbsp; ⏱ 8s</div>
+          <div class="composer"><span class="teal">›</span> <span class="dim">_</span></div>
+          <div class="sheet">
+            <div class="teal">sessions</div>
+            <div class="dim" style="margin:4px 0 8px;">Saved &nbsp; Live &nbsp; / filter</div>
+            <div class="sel">▸ auth refactor</div>
+            <div>  notes</div>
+            <div class="dim">  + new</div>
+            <div class="dim" style="margin-top:10px;">Enter open · Ctrl+D close · Esc</div>
+          </div>
+        </div>
+      </div>
+
+      <h2>5 · Inspector &amp; modal</h2>
+      <div class="grid2">
+        <div>
+          <div class="term" style="position:relative;min-height:280px;">
+            <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> inspector</div>
+            <div class="term-body">
+              <div class="chip-line">▸ terminal  ·  done   git status</div>
+              <div class="float" style="top:58%;width:86%;">
+                <div class="teal">terminal · done</div>
+                <div class="dim" style="margin:6px 0;">$ git status</div>
+                On branch docs/redesign<br>
+                <span class="dim">+124 lines · copy · Esc</span>
+              </div>
+            </div>
+          </div>
+          <p class="caption">Chip stays in the document. Full output lives here — never a silent 12-line cut.</p>
+        </div>
+        <div>
+          <div class="term" style="position:relative;min-height:280px;">
+            <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> modal · danger</div>
+            <div class="term-body" style="opacity:.45;">
+              <div class="dim">document dimmed…</div>
+            </div>
+            <div class="float">
+              <div class="danger">approve</div>
+              <div style="margin:8px 0;">rm -rf dist</div>
+              <div><span class="teal">▸ once</span> &nbsp; always &nbsp; deny</div>
+              <div class="dim" style="margin-top:8px;">Enter confirm · Esc cancel</div>
+            </div>
+          </div>
+          <p class="caption">Only danger and credentials steal the whole screen.</p>
+        </div>
+      </div>
+
+      <h2>6 · Palette · Ctrl+K</h2>
+      <div class="term dark" style="position:relative;">
+        <div class="term-bar"><div class="pips"><span></span><span></span><span></span></div> talaria · dark twin · palette</div>
+        <div class="term-body">
+          <div class="dim">document behind…</div>
+          <div class="float">
+            <div><span class="teal">queue follow-up</span>_</div>
+            <div style="margin-top:10px;background:#3a2a18;padding:2px 6px;">Queue follow-up</div>
+            <div>New session</div>
+            <div>Resume last session</div>
+            <div>Rewind</div>
+            <div class="dim">/compress <span style="opacity:.7">(Hermes)</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Host actions first. Gateway catalog mixed in, tagged. Slash <code>/</code> still exists for people who know it.</p>
+
+      <h2>Verbs</h2>
+      <table>
+        <tr><th>Key</th><th>Talaria</th></tr>
+        <tr><td><code>Enter</code></td><td>Send. If live: <strong>steer</strong>.</td></tr>
+        <tr><td><code>Ctrl+Enter</code></td><td><strong>Queue</strong> follow-up (after this turn).</td></tr>
+        <tr><td><code>Esc</code></td><td>Interrupt if live; else dismiss. Idle = nothing.</td></tr>
+        <tr><td><code>Ctrl+C</code></td><td>Quit (confirm). Never interrupt.</td></tr>
+        <tr><td><code>Ctrl+K</code></td><td>Palette.</td></tr>
+        <tr><td><code>/</code> <code>!</code></td><td>Slash catalog · local shell.</td></tr>
+        <tr><td><code>Ctrl+O</code></td><td>Tool inspector.</td></tr>
+      </table>
+      <p class="note"><code>/clear</code> wipes the view. <code>/new</code> forges a session. Do not teach Ctrl+X because Ink does.</p>
+
+      <h2>Do / don’t</h2>
+      <div class="do">Design the frame first (composer, meter, empty state), then the Hermes card. Sheets with search. Danger as modals. Tools as chips + inspector. Specify 80 and 100 cols. Use token <em>names</em> on the mock.</div>
+      <div class="dont">Clone Ink splash, caduceus hero, chevron accordion, kaomoji status, help text under chips, GitHub Dark as brand default, drop shadows in TUI mocks, voice/billing/inline PNG (out of scope).</div>
+
+      <h2>What we need back</h2>
+      <ol class="note">
+        <li>Light + dark token confirmation (<code>accent</code> vs <code>agent</code> on both).</li>
+        <li>First-run and returning empty states at 80 and 100 cols.</li>
+        <li>Document sample: user, Hermes idle + streaming, thinking, tool chip, shell, system, toast.</li>
+        <li>One sheet, one inspector, one modal, one palette — same skeleton.</li>
+        <li>Meter chip set: idle / live / crowded / 80-col.</li>
+      </ol>
+
+      <footer>
+        TALARIA design handout · unofficial · not a Nous Research product ·
+        docs/DESIGN-HANDOUT.md
+      </footer>
+    </div>
+  </div>
+</body>
+</html>

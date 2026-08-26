@@ -1,7 +1,7 @@
 //! Named palettes (herald_v2 pattern). Widgets read tokens via accessors.
 //!
 //! Call [`apply_theme`] at startup (CLI / env / saved file) and from `/skin`.
-//! `gateway.ready` skin overlay applies only while the GitHub default is active.
+//! `gateway.ready` skin overlay applies only while the GitHub skin is active.
 
 #![allow(non_snake_case)]
 
@@ -14,6 +14,8 @@ use serde_json::Value;
 use crate::paths::{create_private_dir_all, ensure_private_file, TalariaPaths};
 
 pub const GITHUB_ID: &str = "github";
+pub const TALARIA_ID: &str = "talaria";
+pub const TALARIA_LIGHT_ID: &str = "talaria-light";
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -27,6 +29,8 @@ struct Palette {
     error: Color,
     user: Color,
     tool: Color,
+    /// Hermes author mark (`⚕`). Independent of Talaria `primary`.
+    agent: Color,
     selected_text: Color,
     selection_bg: Option<Color>,
     separator: Color,
@@ -46,11 +50,59 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::Rgb(r, g, b)
 }
 
-/// Existing GitHub-ish dark (default).
+/// Espresso canvas, mint selection, gold brand. Default for typical terminals.
+pub const TALARIA: ThemeDefinition = ThemeDefinition {
+    id: TALARIA_ID,
+    label: "Talaria",
+    description: "Espresso canvas, mint selection, gold brand (default).",
+    palette: Palette {
+        background: rgb(0x14, 0x12, 0x10),
+        surface: rgb(0x1c, 0x19, 0x16),
+        primary: rgb(0x7e, 0xcd, 0xc4),
+        text: rgb(0xc5, 0xc1, 0xb8),
+        text_dim: rgb(0x6e, 0x77, 0x72),
+        success: rgb(0x7e, 0xcd, 0xc4),
+        warning: rgb(0xc4, 0xa1, 0x4a),
+        error: rgb(0xd4, 0x6a, 0x5a),
+        user: rgb(0xc4, 0xa1, 0x4a),
+        tool: rgb(0x7e, 0xcd, 0xc4),
+        agent: rgb(0xc4, 0xa1, 0x4a),
+        selected_text: rgb(0x14, 0x12, 0x10),
+        selection_bg: Some(rgb(0x7e, 0xcd, 0xc4)),
+        separator: rgb(0x2e, 0x2a, 0x26),
+        input_border: rgb(0x3a, 0x36, 0x32),
+    },
+};
+
+/// Site pair — parchment light (landing-page tokens).
+pub const TALARIA_LIGHT: ThemeDefinition = ThemeDefinition {
+    id: TALARIA_LIGHT_ID,
+    label: "Talaria Light",
+    description: "Site pair — parchment.",
+    palette: Palette {
+        background: rgb(0xf5, 0xf0, 0xe8),
+        surface: rgb(0xff, 0xfd, 0xf7),
+        primary: rgb(0x0f, 0x76, 0x6e),
+        text: rgb(0x2c, 0x18, 0x10),
+        text_dim: rgb(0x7d, 0x65, 0x49),
+        success: rgb(0x2e, 0x7d, 0x32),
+        warning: rgb(0xc4, 0x43, 0x00),
+        error: rgb(0xc6, 0x28, 0x28),
+        user: rgb(0x0f, 0x76, 0x6e),
+        tool: rgb(0x8b, 0x45, 0x13),
+        agent: rgb(0x8b, 0x69, 0x14),
+        selected_text: rgb(0xf5, 0xf0, 0xe8),
+        selection_bg: Some(rgb(0x0f, 0x76, 0x6e)),
+        separator: rgb(0xc9, 0xb1, 0x91),
+        input_border: rgb(0xc9, 0xb1, 0x91),
+    },
+};
+
+/// Neutral dark. Selectable; not the host default.
 pub const GITHUB: ThemeDefinition = ThemeDefinition {
     id: GITHUB_ID,
     label: "GitHub Dark",
-    description: "Neutral dark canvas (default).",
+    description: "Neutral dark canvas.",
     palette: Palette {
         background: rgb(0x0d, 0x11, 0x17),
         surface: rgb(0x16, 0x1b, 0x22),
@@ -62,6 +114,7 @@ pub const GITHUB: ThemeDefinition = ThemeDefinition {
         error: rgb(0xf8, 0x51, 0x49),
         user: rgb(0xa3, 0x71, 0xf7),
         tool: rgb(0x79, 0xc0, 0xff),
+        agent: rgb(0xf0, 0xc8, 0x5a),
         selected_text: rgb(0xe6, 0xed, 0xf3),
         selection_bg: Some(rgb(0x21, 0x26, 0x2d)),
         separator: rgb(0x30, 0x36, 0x3d),
@@ -85,6 +138,7 @@ pub const DEFAULT: ThemeDefinition = ThemeDefinition {
         error: rgb(0xef, 0x53, 0x50),
         user: rgb(0xda, 0xa5, 0x20),
         tool: rgb(0xff, 0xbf, 0x00),
+        agent: rgb(0xff, 0xd7, 0x00),
         selected_text: rgb(0xff, 0xf8, 0xdc),
         selection_bg: Some(rgb(0x3a, 0x3a, 0x55)),
         separator: rgb(0x8b, 0x86, 0x82),
@@ -107,6 +161,7 @@ pub const ARES: ThemeDefinition = ThemeDefinition {
         error: rgb(0xef, 0x53, 0x50),
         user: rgb(0xc7, 0xa9, 0x6b),
         tool: rgb(0xdd, 0x4a, 0x3a),
+        agent: rgb(0xc7, 0xa9, 0x6b),
         selected_text: rgb(0xf1, 0xe6, 0xcf),
         selection_bg: Some(rgb(0x69, 0x26, 0x20)),
         separator: rgb(0x6e, 0x58, 0x4b),
@@ -129,6 +184,7 @@ pub const MONO: ThemeDefinition = ThemeDefinition {
         error: rgb(0xcc, 0xcc, 0xcc),
         user: rgb(0x88, 0x88, 0x88),
         tool: rgb(0xaa, 0xaa, 0xaa),
+        agent: rgb(0xe6, 0xed, 0xf3),
         selected_text: rgb(0xe6, 0xed, 0xf3),
         selection_bg: Some(rgb(0x50, 0x50, 0x50)),
         separator: rgb(0x5e, 0x5e, 0x5e),
@@ -151,6 +207,7 @@ pub const SLATE: ThemeDefinition = ThemeDefinition {
         error: rgb(0xf7, 0xa0, 0x72),
         user: rgb(0x8e, 0xa8, 0xff),
         tool: rgb(0x7e, 0xb8, 0xf6),
+        agent: rgb(0x7e, 0xb8, 0xf6),
         selected_text: rgb(0xc9, 0xd1, 0xd9),
         selection_bg: Some(rgb(0x3a, 0x53, 0x75)),
         separator: rgb(0x54, 0x5e, 0x6b),
@@ -173,6 +230,7 @@ pub const DAYLIGHT: ThemeDefinition = ThemeDefinition {
         error: rgb(0xb9, 0x1c, 0x1c),
         user: rgb(0x0f, 0x76, 0x6e),
         tool: rgb(0x25, 0x63, 0xeb),
+        agent: rgb(0x0f, 0x17, 0x2a),
         selected_text: rgb(0x0f, 0x17, 0x2a),
         selection_bg: Some(rgb(0xd3, 0xe0, 0xfb)),
         separator: rgb(0x64, 0x74, 0x8b),
@@ -195,6 +253,7 @@ pub const WARM_LIGHT: ThemeDefinition = ThemeDefinition {
         error: rgb(0xc6, 0x28, 0x28),
         user: rgb(0x5c, 0x3d, 0x11),
         tool: rgb(0x8b, 0x45, 0x13),
+        agent: rgb(0x5c, 0x3d, 0x11),
         selected_text: rgb(0x2c, 0x18, 0x10),
         selection_bg: Some(rgb(0xe8, 0xda, 0xd0)),
         separator: rgb(0xa0, 0x84, 0x5c),
@@ -217,6 +276,7 @@ pub const POSEIDON: ThemeDefinition = ThemeDefinition {
         error: rgb(0xef, 0x53, 0x50),
         user: rgb(0xa9, 0xdf, 0xff),
         tool: rgb(0x5d, 0xb8, 0xf5),
+        agent: rgb(0xa9, 0xdf, 0xff),
         selected_text: rgb(0xea, 0xf7, 0xff),
         selection_bg: Some(rgb(0x2a, 0x58, 0x7f)),
         separator: rgb(0x49, 0x68, 0x84),
@@ -239,6 +299,7 @@ pub const SISYPHUS: ThemeDefinition = ThemeDefinition {
         error: rgb(0xe7, 0xe7, 0xe7),
         user: rgb(0xd3, 0xd3, 0xd3),
         tool: rgb(0xe7, 0xe7, 0xe7),
+        agent: rgb(0xf5, 0xf5, 0xf5),
         selected_text: rgb(0xf5, 0xf5, 0xf5),
         selection_bg: Some(rgb(0x66, 0x66, 0x66)),
         separator: rgb(0x65, 0x65, 0x65),
@@ -261,6 +322,7 @@ pub const CHARIZARD: ThemeDefinition = ThemeDefinition {
         error: rgb(0xef, 0x53, 0x50),
         user: rgb(0xff, 0xd3, 0x9a),
         tool: rgb(0xf2, 0x9c, 0x38),
+        agent: rgb(0xff, 0xd3, 0x9a),
         selected_text: rgb(0xff, 0xf0, 0xd4),
         selection_bg: Some(rgb(0x5a, 0x26, 0x0d)),
         separator: rgb(0x7b, 0x59, 0x3a),
@@ -269,11 +331,22 @@ pub const CHARIZARD: ThemeDefinition = ThemeDefinition {
 };
 
 const THEMES: &[ThemeDefinition] = &[
-    GITHUB, DEFAULT, ARES, MONO, SLATE, DAYLIGHT, WARM_LIGHT, POSEIDON, SISYPHUS, CHARIZARD,
+    TALARIA,
+    TALARIA_LIGHT,
+    GITHUB,
+    DEFAULT,
+    ARES,
+    MONO,
+    SLATE,
+    DAYLIGHT,
+    WARM_LIGHT,
+    POSEIDON,
+    SISYPHUS,
+    CHARIZARD,
 ];
 
-static PALETTE: RwLock<Palette> = RwLock::new(GITHUB.palette);
-static THEME_ID: RwLock<&'static str> = RwLock::new(GITHUB_ID);
+static PALETTE: RwLock<Palette> = RwLock::new(TALARIA.palette);
+static THEME_ID: RwLock<&'static str> = RwLock::new(TALARIA_ID);
 /// Set when the palette changes. The event loop calls `Terminal::clear`
 /// so ratatui does not skip cells after a skin swap.
 static CANVAS_DIRTY: AtomicBool = AtomicBool::new(false);
@@ -298,7 +371,7 @@ pub fn current_theme_id() -> &'static str {
 pub fn current_theme_label() -> &'static str {
     theme_by_id(current_theme_id())
         .map(|t| t.label)
-        .unwrap_or(GITHUB.label)
+        .unwrap_or(TALARIA.label)
 }
 
 /// Swap the active palette. Does not touch the terminal; call
@@ -333,7 +406,7 @@ pub fn resolve_startup_theme(cli: Option<&str>) -> &'static str {
             return id.id;
         }
     }
-    GITHUB_ID
+    TALARIA_ID
 }
 
 pub fn load_saved_theme_id() -> Option<String> {
@@ -414,6 +487,9 @@ pub fn USER() -> Color {
 pub fn TOOL() -> Color {
     pal().tool
 }
+pub fn AGENT() -> Color {
+    pal().agent
+}
 pub fn SELECTED_TEXT() -> Color {
     pal().selected_text
 }
@@ -447,6 +523,19 @@ pub fn assistant() -> Style {
 }
 pub fn tool() -> Style {
     Style::default().fg(TOOL())
+}
+pub fn agent() -> Style {
+    Style::default().fg(AGENT())
+}
+/// Full-bar selection (mint on espresso). Inverse of body text.
+pub fn selected() -> Style {
+    Style::default()
+        .fg(SELECTED_TEXT())
+        .bg(PRIMARY())
+        .add_modifier(Modifier::BOLD)
+}
+pub fn hairline() -> Style {
+    Style::default().fg(SEPARATOR())
 }
 
 /// Block caret: invert the prompt canvas (never a hardcoded swatch).
@@ -608,6 +697,8 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "talaria",
+                "talaria-light",
                 "github",
                 "default",
                 "ares",
@@ -620,6 +711,23 @@ mod tests {
                 "charizard",
             ]
         );
+        assert_eq!(themes()[0].id, TALARIA_ID);
+        assert_eq!(themes()[1].id, TALARIA_LIGHT_ID);
+    }
+
+    #[test]
+    fn talaria_pair_tokens() {
+        let _g = THEME_LOCK.lock().unwrap();
+        assert!(apply_theme("talaria"));
+        assert_eq!(BACKGROUND(), rgb(0x14, 0x12, 0x10));
+        assert_eq!(PRIMARY(), rgb(0x7e, 0xcd, 0xc4));
+        assert_eq!(AGENT(), rgb(0xc4, 0xa1, 0x4a));
+        assert_eq!(TEXT(), rgb(0xc5, 0xc1, 0xb8));
+        assert_eq!(SELECTED_TEXT(), rgb(0x14, 0x12, 0x10));
+        assert!(apply_theme("talaria-light"));
+        assert_eq!(BACKGROUND(), rgb(0xf5, 0xf0, 0xe8));
+        assert_eq!(PRIMARY(), rgb(0x0f, 0x76, 0x6e));
+        restore_github();
     }
 
     #[test]

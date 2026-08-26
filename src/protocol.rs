@@ -176,16 +176,8 @@ pub fn rpc_session_id(result: &Value) -> Option<&str> {
 pub fn is_unhandled_v1(type_name: &str) -> bool {
     matches!(
         type_name,
-        "reasoning.available"
-            | "message.start"
-            | "message.interim"
-            | "status.update"
-            | "skin.changed"
-            | "reaction"
-            | "review.summary"
-            | "background.complete"
-    ) || type_name.starts_with("notification.")
-        || type_name.starts_with("voice.")
+        "reasoning.available" | "message.start" | "message.interim" | "reaction" | "review.summary"
+    ) || type_name.starts_with("voice.")
         || type_name.starts_with("wake.")
         || type_name.starts_with("moa.")
         || type_name.starts_with("browser.")

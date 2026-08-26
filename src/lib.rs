@@ -4,6 +4,7 @@
 //! Not affiliated with Nous Research. See `NOTICE.md`.
 
 pub mod app;
+pub mod attachments;
 pub mod cli;
 pub mod clipboard;
 pub mod discover;

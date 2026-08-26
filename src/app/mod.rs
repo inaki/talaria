@@ -1,5 +1,6 @@
 use tokio::sync::mpsc;
 
+use crate::cli::ResumeSpec;
 use crate::session::{SessionEvent, SessionKind};
 use crate::ui::screens::{Chat, CurrentScreen};
 
@@ -18,6 +19,7 @@ pub struct RunOptions {
     pub verbose: bool,
     pub theme: Option<String>,
     pub force: bool,
+    pub resume: ResumeSpec,
 }
 
 pub struct App {

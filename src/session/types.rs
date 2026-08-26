@@ -16,6 +16,17 @@ pub enum SessionCommand {
         session_id: String,
         cols: u16,
     },
+    /// Most recent saved session, or a fresh create if none exist.
+    ResumeLatest {
+        cwd: Option<String>,
+        cols: u16,
+    },
+    /// Match saved id or title, else create fresh.
+    ResumeQuery {
+        query: String,
+        cwd: Option<String>,
+        cols: u16,
+    },
     Activate {
         session_id: String,
     },
@@ -61,12 +72,16 @@ pub enum SessionCommand {
     },
     AttachImage {
         path: String,
+        /// `[Image #n]` as shown in the composer, so the model can resolve the
+        /// reference in the prompt text to this file.
+        label: String,
     },
     ClipboardPaste,
     ListSpawnTrees,
     LoadSpawnTree {
         path: String,
     },
+    SaveSpawnTree,
     FetchHistory,
     Rewind {
         text: String,
@@ -206,6 +221,9 @@ pub enum SessionEvent {
     Unhandled {
         type_name: String,
         payload: Value,
+    },
+    SkinChanged {
+        skin: Value,
     },
     Catalog {
         commands: Vec<SlashCommand>,

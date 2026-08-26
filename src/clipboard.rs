@@ -125,6 +125,49 @@ fn write_backup(text: &str) -> PathBuf {
     path
 }
 
+/// Read OS clipboard text. Empty, binary, or missing clipboard → `None`.
+pub fn paste_text() -> Option<String> {
+    let raw = paste_native()?;
+    if raw.is_empty() || raw.contains('\0') || raw.len() > 1_000_000 {
+        return None;
+    }
+    Some(raw)
+}
+
+fn paste_native() -> Option<String> {
+    if cfg!(target_os = "macos") {
+        return stdout_of(&["pbpaste"]);
+    }
+    if cfg!(target_os = "windows") {
+        return stdout_of(&["powershell", "-NoProfile", "-Command", "Get-Clipboard"]);
+    }
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        if let Some(s) = stdout_of(&["wl-paste", "--no-newline"]) {
+            return Some(s);
+        }
+        if let Some(s) = stdout_of(&["wl-paste"]) {
+            return Some(s);
+        }
+    }
+    stdout_of(&["xclip", "-selection", "clipboard", "-o"])
+        .or_else(|| stdout_of(&["xsel", "--clipboard", "--output"]))
+}
+
+fn stdout_of(argv: &[&str]) -> Option<String> {
+    let (bin, args) = argv.split_first()?;
+    let out = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
+}
+
 fn copy_native(text: &str) -> bool {
     if cfg!(target_os = "macos") {
         return pipe_to(&["pbcopy"], text);

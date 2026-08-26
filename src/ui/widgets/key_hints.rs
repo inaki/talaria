@@ -17,7 +17,7 @@ impl KeyHints {
 
     /// Idle composer: only actions that do something right now.
     pub fn idle(has_tools: bool, can_rewind: bool) -> Self {
-        let mut items = vec![("/", "commands"), ("!", "shell")];
+        let mut items = vec![("Ctrl+K", "palette"), ("/", "commands"), ("!", "shell")];
         if has_tools {
             items.push(("Ctrl+O", "expand tool"));
         }
@@ -27,8 +27,21 @@ impl KeyHints {
         Self::new(items)
     }
 
+    pub fn returning() -> Self {
+        Self::new(vec![
+            ("1–3", "resume"),
+            ("Enter", "resume"),
+            ("Ctrl+K", "palette"),
+            ("/", "sessions"),
+        ])
+    }
+
     pub fn streaming() -> Self {
-        Self::new(vec![("Enter", "steer"), ("Esc", "interrupt")])
+        Self::new(vec![
+            ("Enter", "steer"),
+            ("Ctrl+Enter", "queue"),
+            ("Esc", "interrupt"),
+        ])
     }
 
     pub fn slash() -> Self {
