@@ -2,3 +2,5 @@
 /captures
 *.log
 .DS_Store
+
+/journal
