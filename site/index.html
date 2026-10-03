@@ -503,6 +503,48 @@
       white-space: pre;
     }
 
+    .tabs {
+      display: inline-flex;
+      border: 2px solid var(--ink);
+      box-shadow: 4px 4px 0 var(--ink);
+      margin: 4px 0 26px;
+    }
+    .tab {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--card);
+      border: 0;
+      padding: 9px 18px;
+      cursor: pointer;
+    }
+    .tab + .tab { border-left: 2px solid var(--ink); }
+    .tab:hover { background: var(--band); }
+    .tab[aria-selected="true"] { background: var(--gold); color: var(--on-accent); }
+    .tab:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+    .mode { display: flex; flex-direction: column; gap: 13px; }
+    .mode[hidden] { display: none; }
+    /* Code + copy column, same object as the hero command. */
+    .snippet {
+      display: flex;
+      align-items: stretch;
+      border: 1.5px solid var(--rule);
+      background: var(--panel);
+    }
+    .snippet pre {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+    }
+    .copy.copy-sm {
+      flex: none;
+      font-size: 11px;
+      padding: 0 12px;
+      border-left: 1.5px solid var(--rule);
+    }
+
     /* ---------- keys ---------- */
     .key-row {
       padding: 14px 18px;
@@ -678,39 +720,83 @@
       <p class="after">Full matrix: <a href="https://github.com/inaki/talaria/blob/main/docs/PARITY.md">docs/PARITY.md</a></p>
     </section>
 
-    <section>
+    <section id="install">
       <h2 class="eyebrow">INSTALL</h2>
       <p class="deck deck-tight">Needs a working Hermes Agent first.</p>
       <p class="deck-note">Quit that TUI before starting Talaria — they share <code>~/.hermes</code>. Talaria only ever writes <code>~/.talaria</code>.</p>
 
-      <div class="cards">
+      <div class="tabs" role="tablist" aria-label="Install or upgrade">
+        <button class="tab" type="button" role="tab" id="tab-install" data-mode="install" aria-selected="true">INSTALL</button>
+        <button class="tab" type="button" role="tab" id="tab-upgrade" data-mode="upgrade" aria-selected="false" tabindex="-1">UPGRADE</button>
+      </div>
+
+      <div class="cards" id="install-cards">
         <div class="card">
           <div class="card-head">
             <span class="card-name">Homebrew</span>
             <span class="card-meta">macOS · builds from source</span>
           </div>
-          <p>Formula tap. Compiles the crate locally, so expect a Rust toolchain and a minute of build time.</p>
-          <pre>brew install inaki/talaria/talaria
+          <div class="mode" data-mode="install">
+            <p>Formula tap. Compiles the crate locally, so expect a Rust toolchain and a minute of build time.</p>
+            <div class="snippet">
+              <pre>brew install inaki/talaria/talaria
 talaria</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the Homebrew install commands">COPY</button>
+            </div>
+          </div>
+          <div class="mode" data-mode="upgrade" hidden>
+            <p>Refresh the tap, then rebuild at the latest tag. Same minute of build time as the install.</p>
+            <div class="snippet">
+              <pre>brew update
+brew upgrade talaria
+talaria --version</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the Homebrew upgrade commands">COPY</button>
+            </div>
+          </div>
         </div>
         <div class="card">
           <div class="card-head">
             <span class="card-name">curl</span>
             <span class="card-meta">macOS / Linux · prebuilt binary</span>
           </div>
-          <p>Use this exact URL (raw.githubusercontent.com), not the GitHub file page. The binary lands in ~/.local/bin.</p>
-          <pre>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
+          <div class="mode" data-mode="install">
+            <p>Use this exact URL (raw.githubusercontent.com), not the GitHub file page. The binary lands in ~/.local/bin.</p>
+            <div class="snippet">
+              <pre>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
 ~/.local/bin/talaria --version</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the curl install commands">COPY</button>
+            </div>
+          </div>
+          <div class="mode" data-mode="upgrade" hidden>
+            <p>Run the installer again. It fetches the latest release and replaces the binary in ~/.local/bin. Append <code>-s -- v0.1.8</code> to pin a version.</p>
+            <div class="snippet">
+              <pre>curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
+~/.local/bin/talaria --version</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the curl upgrade commands">COPY</button>
+            </div>
+          </div>
         </div>
         <div class="card">
           <div class="card-head">
             <span class="card-name">Hermes Agent</span>
             <span class="card-meta">required for live mode</span>
           </div>
-          <p>Install and set up the agent first, then run hermes setup. Talaria refuses to start while another tui_gateway is live.</p>
-          <pre>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+          <div class="mode" data-mode="install">
+            <p>Install and set up the agent first, then run hermes setup. Talaria refuses to start while another tui_gateway is live.</p>
+            <div class="snippet">
+              <pre>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 hermes setup</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the Hermes Agent install commands">COPY</button>
+            </div>
+          </div>
+          <div class="mode" data-mode="upgrade" hidden>
+            <p>Hermes updates itself. Quit Talaria first so the gateway isn’t running mid-update.</p>
+            <div class="snippet">
+              <pre>hermes update</pre>
+              <button class="copy copy-sm" type="button" aria-label="Copy the Hermes Agent upgrade commands">COPY</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -826,11 +912,44 @@ hermes setup</pre>
     });
   })();
 
+  (function () {
+    const tabs = Array.from(document.querySelectorAll(".tab"));
+    const modes = document.querySelectorAll("#install-cards .mode");
+    function select(mode, focus) {
+      tabs.forEach((t) => {
+        const on = t.dataset.mode === mode;
+        t.setAttribute("aria-selected", on ? "true" : "false");
+        t.tabIndex = on ? 0 : -1;
+        if (on && focus) t.focus();
+      });
+      modes.forEach((m) => { m.hidden = m.dataset.mode !== mode; });
+    }
+    tabs.forEach((t, i) => {
+      t.addEventListener("click", () => {
+        select(t.dataset.mode, false);
+        history.replaceState(null, "", t.dataset.mode === "upgrade" ? "#upgrade" : "#install");
+      });
+      t.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+        select(next.dataset.mode, true);
+      });
+    });
+    // Deep link: talaria site/#upgrade opens on the upgrade commands.
+    if (location.hash === "#upgrade") {
+      select("upgrade", false);
+      document.getElementById("install").scrollIntoView();
+    }
+  })();
+
   document.querySelectorAll(".copy").forEach((btn) => {
     let timer;
     btn.addEventListener("click", async () => {
+      // Card buttons copy the snippet beside them; the hero carries data-copy.
+      const text = btn.dataset.copy ?? btn.previousElementSibling.textContent;
       try {
-        await navigator.clipboard.writeText(btn.dataset.copy);
+        await navigator.clipboard.writeText(text);
       } catch (_) {
         return;
       }
