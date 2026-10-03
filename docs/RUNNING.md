@@ -7,7 +7,7 @@ brew install inaki/talaria/talaria
 curl -fsSL https://raw.githubusercontent.com/inaki/talaria/main/install.sh | bash
 ```
 
-Latest release: [v0.1.7](https://github.com/inaki/talaria/releases/tag/v0.1.7). Prebuilt curl binaries: macOS (Apple silicon and Intel), Linux x86_64/arm64.
+Latest release: [v0.1.8](https://github.com/inaki/talaria/releases/tag/v0.1.8). Prebuilt curl binaries: macOS (Apple silicon and Intel), Linux x86_64/arm64.
 
 The UI binary is `talaria`. Live mode uses the same `~/.hermes` as `hermes --tui`. Chrome (skin, composer history, `/custom`) is `~/.talaria/`.
 

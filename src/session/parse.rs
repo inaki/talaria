@@ -924,6 +924,21 @@ pub(super) fn parse_usage(result: &Value) -> SessionEvent {
                 .collect()
         })
         .unwrap_or_default();
+    let cost_status = result
+        .get("cost_status")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    // Hide spend that isn't real money: unpriced/subscription models, and a
+    // bare `0` from gateways that send `cost_usd` without `cost_status`.
+    let cost_usd =
+        result
+            .get("cost_usd")
+            .and_then(|v| v.as_f64())
+            .filter(|c| match cost_status.as_deref() {
+                Some("unknown" | "included") => false,
+                Some(_) => true,
+                None => *c > 0.0,
+            });
     SessionEvent::Usage(UsageSnapshot {
         calls: num("calls"),
         input: num("input"),
@@ -932,11 +947,8 @@ pub(super) fn parse_usage(result: &Value) -> SessionEvent {
         context_used: num("context_used"),
         context_max: num("context_max"),
         context_percent: num("context_percent"),
-        cost_usd: result.get("cost_usd").and_then(|v| v.as_f64()),
-        cost_status: result
-            .get("cost_status")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        cost_usd,
+        cost_status,
         model: result
             .get("model")
             .and_then(|v| v.as_str())
@@ -1212,6 +1224,28 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_usage_hides_unpriced_cost() {
+        let cost = |v: serde_json::Value| match parse_usage(&v) {
+            SessionEvent::Usage(u) => u.cost_usd,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(cost(json!({"cost_usd": 0.0})), None, "bare zero");
+        assert_eq!(cost(json!({"cost_usd": 0.5})), Some(0.5), "no status");
+        assert_eq!(
+            cost(json!({"cost_usd": 0.0, "cost_status": "actual"})),
+            Some(0.0)
+        );
+        assert_eq!(
+            cost(json!({"cost_usd": 0.0, "cost_status": "unknown"})),
+            None
+        );
+        assert_eq!(
+            cost(json!({"cost_usd": 3.0, "cost_status": "included"})),
+            None
+        );
     }
 
     #[test]
