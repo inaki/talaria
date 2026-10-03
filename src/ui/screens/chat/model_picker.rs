@@ -9,8 +9,10 @@ use crate::session::ModelProvider;
 use crate::theme;
 use crate::ui::keys::{is_ctrl_d, is_ctrl_g, is_ctrl_u, typed_char};
 use crate::ui::screens::ScreenAction;
+use crate::ui::widgets::selector;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub const VISIBLE: usize = 12;
 
@@ -548,15 +550,8 @@ fn provider_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             ),
         ]),
         Line::from(Span::styled(filter_hint(&picker.filter), theme::dim())),
-        Line::from(Span::styled(
-            if warning.is_empty() {
-                String::new()
-            } else {
-                format!("warning: {warning}")
-            },
-            theme::error(),
-        )),
     ];
+    lines.extend(warning_slot(&warning));
     if rows.is_empty() {
         lines.push(Line::from(Span::styled(
             if picker.filter.is_empty() {
@@ -575,11 +570,7 @@ fn provider_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             )));
         }
         for (idx, row) in rows.iter().enumerate().skip(offset).take(VISIBLE) {
-            let mark = if picker.provider_idx == idx {
-                "▸ "
-            } else {
-                "  "
-            };
+            let sel = picker.provider_idx == idx;
             let auth = if !row.authenticated {
                 "○"
             } else if row.is_current {
@@ -596,17 +587,17 @@ fn provider_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             } else {
                 format!("{} models", row.total_models)
             };
-            let style = if picker.provider_idx == idx {
+            let style = if sel {
                 theme::accent()
             } else if !row.authenticated {
                 theme::dim()
             } else {
                 theme::text()
             };
-            lines.push(Line::from(Span::styled(
-                format!("{mark}{auth} {} · {suffix}", row.name),
-                style,
-            )));
+            lines.push(Line::from(vec![
+                Span::styled(selector::prefix(sel), style),
+                Span::styled(format!("{auth} {} · {suffix}", row.name), style),
+            ]));
         }
         let rest = rows.len().saturating_sub(offset + VISIBLE);
         if rest > 0 {
@@ -657,22 +648,25 @@ fn model_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
             )));
         }
         for (idx, model) in models.iter().enumerate().skip(offset).take(VISIBLE) {
+            let sel = picker.model_idx == idx;
             let current = *model == picker.current_model;
-            let prefix = if picker.model_idx == idx {
-                "▸ "
-            } else if current {
-                "● "
-            } else {
-                "  "
-            };
-            let style = if picker.model_idx == idx {
+            let mark = if current && !sel { "●" } else { "" };
+            let style = if sel {
                 theme::accent().add_modifier(Modifier::BOLD)
             } else if current {
                 theme::agent()
             } else {
                 theme::text()
             };
-            lines.push(Line::from(Span::styled(format!("{prefix}{model}"), style)));
+            let label = if mark.is_empty() {
+                (*model).to_string()
+            } else {
+                format!("{mark} {model}")
+            };
+            lines.push(Line::from(vec![
+                Span::styled(selector::prefix(sel), style),
+                Span::styled(label, style),
+            ]));
         }
         let rest = models.len().saturating_sub(offset + VISIBLE);
         if rest > 0 {
@@ -688,6 +682,72 @@ fn model_lines(picker: &ModelPicker) -> Vec<Line<'static>> {
         theme::dim(),
     )));
     lines
+}
+
+/// Always two rows so a 1- or 2-line warning never shoves the provider list.
+fn warning_slot(text: &str) -> [Line<'static>; 2] {
+    const COLS: usize = 32;
+    let blank = || Line::from("");
+    if text.is_empty() {
+        return [blank(), blank()];
+    }
+    let full = format!("warning: {text}");
+    let (first, rest) = split_at_width(&full, COLS);
+    let second = if rest.is_empty() {
+        String::new()
+    } else {
+        ellipsize_width(&rest, COLS)
+    };
+    [
+        Line::from(Span::styled(first, theme::error())),
+        Line::from(Span::styled(second, theme::error())),
+    ]
+}
+
+fn split_at_width(s: &str, cols: usize) -> (String, String) {
+    if display_width(s) <= cols {
+        return (s.to_string(), String::new());
+    }
+    let mut w = 0usize;
+    let mut break_at = 0usize;
+    let mut last_space = 0usize;
+    for (i, ch) in s.char_indices() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > cols {
+            break;
+        }
+        w += cw;
+        break_at = i + ch.len_utf8();
+        if ch.is_whitespace() {
+            last_space = break_at;
+        }
+    }
+    let cut = if last_space > 0 { last_space } else { break_at };
+    let (a, b) = s.split_at(cut);
+    (a.trim_end().to_string(), b.trim_start().to_string())
+}
+
+fn ellipsize_width(s: &str, cols: usize) -> String {
+    if display_width(s) <= cols {
+        return s.to_string();
+    }
+    let keep = cols.saturating_sub(1);
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > keep {
+            break;
+        }
+        out.push(ch);
+        w += cw;
+    }
+    out.push('…');
+    out
+}
+
+fn display_width(s: &str) -> usize {
+    UnicodeWidthStr::width(s)
 }
 
 fn persist_scope_line(global: bool) -> Line<'static> {
@@ -811,6 +871,32 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn warning_slot_is_always_two_rows() {
+        assert_eq!(warning_slot("").len(), 2);
+        assert_eq!(warning_slot("no key").len(), 2);
+        assert_eq!(
+            warning_slot("paste ANTHROPIC_API_KEY to activate and then restart").len(),
+            2
+        );
+        let a = provider_lines(&picker());
+        let mut p = picker();
+        p.provider_idx = 1;
+        p.providers[1].warning = Some("paste ANTHROPIC_API_KEY to activate".into());
+        let b = provider_lines(&p);
+        let idx_a = a.iter().position(|l| {
+            l.spans
+                .iter()
+                .any(|s| s.content.as_ref().contains("OpenRouter"))
+        });
+        let idx_b = b.iter().position(|l| {
+            l.spans
+                .iter()
+                .any(|s| s.content.as_ref().contains("OpenRouter"))
+        });
+        assert_eq!(idx_a, idx_b, "warning must not shift the provider list");
     }
 
     #[test]

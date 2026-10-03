@@ -56,11 +56,13 @@ pub fn dispatch(app: &mut App, action: ScreenAction) {
         }
         ScreenAction::RespondClarify {
             request_id,
+            question_id,
             answers,
         } => {
             if let Some(session) = &app.session {
                 session.send(SessionCommand::RespondClarify {
                     request_id,
+                    question_id,
                     answers,
                 });
             }

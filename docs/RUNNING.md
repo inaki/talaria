@@ -17,11 +17,33 @@ If another Hermes Agent TUI is running, this process exits before the alt-screen
 
 ```bash
 cargo test
-cargo run -- --dev --mock=streaming
-cargo run -- --dev --mock=tools
-cargo run -- --dev --mock=approval
-cargo run -- --dev --mock=subagent
-cargo run -- --dev --mock=error
+cargo run -- --dev --mock=home        # first-run splash (no recents)
+cargo run -- --dev --mock=streaming   # returning empty + keyword hub
+```
+
+`--mock=streaming` is a keyword hub. Type one of these in the composer and Enter:
+
+| Keyword | UI |
+|---------|-----|
+| `code` | rust fence in the document |
+| `pdf` / `doc` | `read_file` on a PDF, then a summary |
+| `ask` | clarify modal — pick a choice |
+| `type` | clarify modal — type to continue |
+| `batch` | multi-question clarify (`1/3` … `3/3`), Esc cancels all |
+| `tools` | tool chips |
+| `error` | provider error |
+| `toolerror` | failed tool |
+| `approval` | danger modal |
+| `agent` | subagent rollup |
+| `help` | this list |
+
+Anything else streams a short reply that lists the keywords. Forced scripts still work: `--mock=tools`, `--mock=approval`, `--mock=subagent`, `--mock=error`.
+
+Home screens in the gallery: **Empty splash** (first run) and **Empty returning** (last sessions).
+
+```bash
+cargo run --example gallery
+cargo run --example mascot          # winged sneaker PNG → Braille dots (like caduceus)
 ```
 
 ## Design gallery
@@ -32,6 +54,8 @@ on the live theme. Dev-only; not in the `talaria` binary.
 ```bash
 cargo run --example gallery
 ```
+
+Identity samples: **Mascot** (Braille, gold/mint tokens), **Mascot (logo-art)** (true-color `▄`/`▀`), and **Effects (tachyonfx)** (home enter, mint pulse, gold fade, dissolve, tool panel expand, response left-rule).
 
 ↑/↓ move · Enter interact (composer, slash, palette, sheets, inspectors) · `t` cycle skin · `q` quit.
 

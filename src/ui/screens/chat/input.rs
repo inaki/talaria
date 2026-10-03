@@ -95,13 +95,26 @@ pub(super) fn on_key(chat: &mut Chat, key: KeyEvent) -> Option<ScreenAction> {
                 }
                 Some(SheetAction::ToggleCustom) => {
                     if let Some(OpenSheet::List(sheet)) = &chat.sheet {
-                        match sheet.selected {
-                            0 => {
+                        match sheet.selected_id().as_deref() {
+                            Some("status_bar") => {
                                 crate::prefs::toggle_status_bar();
                             }
-                            _ => {
+                            Some("key_hints") => {
                                 crate::prefs::toggle_key_hints();
                             }
+                            Some("rail") => {
+                                let on = crate::prefs::toggle_rail();
+                                let narrow = chat.transcript_area.width
+                                    + crate::ui::widgets::RAIL_WIDTH
+                                    < crate::ui::widgets::RAIL_MIN_WIDTH;
+                                if on && narrow {
+                                    chat.set_toast(format!(
+                                        "rail on · hidden below {} cols",
+                                        crate::ui::widgets::RAIL_MIN_WIDTH
+                                    ));
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     None

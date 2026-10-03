@@ -248,10 +248,14 @@ async fn handle_live_cmd(
         }
         SessionCommand::RespondClarify {
             request_id,
+            question_id,
             answers,
         } => {
             let mut params = json!({ "request_id": request_id, "answers": answers });
             params["answer"] = answers.clone();
+            if let Some(qid) = question_id {
+                params["question_id"] = json!(qid);
+            }
             client.request("clarify.respond", params).await?;
             Ok(())
         }

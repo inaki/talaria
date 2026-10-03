@@ -12,6 +12,10 @@ fn on() -> bool {
     true
 }
 
+fn off() -> bool {
+    false
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChromePrefs {
@@ -19,6 +23,9 @@ pub struct ChromePrefs {
     pub status_bar: bool,
     #[serde(default = "on")]
     pub key_hints: bool,
+    /// Right-hand ambient rail. Opt-in: it costs columns the document wants.
+    #[serde(default = "off")]
+    pub rail: bool,
 }
 
 impl Default for ChromePrefs {
@@ -26,6 +33,7 @@ impl Default for ChromePrefs {
         Self {
             status_bar: true,
             key_hints: true,
+            rail: false,
         }
     }
 }
@@ -33,6 +41,7 @@ impl Default for ChromePrefs {
 static PREFS: RwLock<ChromePrefs> = RwLock::new(ChromePrefs {
     status_bar: true,
     key_hints: true,
+    rail: false,
 });
 
 pub fn load() {
@@ -52,6 +61,17 @@ pub fn status_bar() -> bool {
 
 pub fn key_hints() -> bool {
     get().key_hints
+}
+
+pub fn rail() -> bool {
+    get().rail
+}
+
+pub fn toggle_rail() -> bool {
+    let mut p = get();
+    p.rail = !p.rail;
+    replace(p);
+    p.rail
 }
 
 pub fn toggle_status_bar() -> bool {
@@ -130,16 +150,22 @@ mod tests {
         ChromePrefs {
             status_bar: false,
             key_hints: true,
+            rail: true,
         }
         .write_file(&p);
         let loaded = ChromePrefs::read_file(&p);
         assert!(!loaded.status_bar);
         assert!(loaded.key_hints);
+        assert!(loaded.rail);
 
         std::fs::write(&p, "{\"status_bar\":false}").unwrap();
         let partial = ChromePrefs::read_file(&p);
         assert!(!partial.status_bar);
         assert!(partial.key_hints, "omitted key_hints stays on");
+        assert!(
+            !partial.rail,
+            "rail is opt-in, so an old file leaves it off"
+        );
         let _ = std::fs::remove_file(&p);
     }
 }

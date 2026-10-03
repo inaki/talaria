@@ -14,6 +14,7 @@ use super::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MockScenario {
     Streaming,
+    Home,
     Tools,
     Approval,
     Error,
@@ -23,6 +24,7 @@ pub enum MockScenario {
 impl MockScenario {
     pub fn parse(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
+            "home" | "empty" | "splash" => Self::Home,
             "tools" => Self::Tools,
             "approval" => Self::Approval,
             "error" => Self::Error,
@@ -102,9 +104,13 @@ async fn mock_loop(
         .await;
     let _ = ev_tx.send(mock_catalog()).await;
 
+    let mut user_turns: Vec<String> = Vec::new();
+    // Grows on every usage fetch so the status-bar cost visibly ticks up.
+    let mut spent_usd = 0.0_f64;
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             SessionCommand::Submit { text } => {
+                user_turns.push(text.clone());
                 play_scenario(scenario, &text, &ev_tx).await;
             }
             SessionCommand::Interrupt => {
@@ -116,33 +122,12 @@ async fn mock_loop(
                 let _ = ev_tx.send(mock_catalog()).await;
             }
             SessionCommand::ListSaved { .. } => {
-                let _ = ev_tx
-                    .send(SessionEvent::SavedList {
-                        sessions: vec![
-                            SavedSession {
-                                id: "sess-alpha".into(),
-                                title: "Yesterday's chat".into(),
-                                preview: "we talked about rust".into(),
-                                source: "tui".into(),
-                                message_count: 6,
-                            },
-                            SavedSession {
-                                id: "sess-beta".into(),
-                                title: "CLI notes".into(),
-                                preview: "cargo test".into(),
-                                source: "cli".into(),
-                                message_count: 3,
-                            },
-                            SavedSession {
-                                id: "sess-gamma".into(),
-                                title: "Planning".into(),
-                                preview: "phase B returning workspace".into(),
-                                source: "tui".into(),
-                                message_count: 9,
-                            },
-                        ],
-                    })
-                    .await;
+                let sessions = if matches!(scenario, MockScenario::Home) {
+                    Vec::new()
+                } else {
+                    mock_saved_sessions()
+                };
+                let _ = ev_tx.send(SessionEvent::SavedList { sessions }).await;
             }
             SessionCommand::ListActive => {
                 let _ = ev_tx
@@ -186,11 +171,37 @@ async fn mock_loop(
                 let _ = ev_tx
                     .send(SessionEvent::Status(format!("approval: {choice}")))
                     .await;
+                stream_reply(
+                    &ev_tx,
+                    &format!("Approved **{choice}**. Continuing the mock turn."),
+                )
+                .await;
             }
-            SessionCommand::RespondClarify { .. } => {
-                let _ = ev_tx
-                    .send(SessionEvent::Status("clarify answered (mock)".into()))
+            SessionCommand::RespondClarify {
+                answers,
+                question_id,
+                ..
+            } => {
+                let picked = clarify_pick(&answers);
+                // Batch: Hermes only resumes once the last question is locked.
+                if question_id
+                    .as_deref()
+                    .is_some_and(|q| q != MOCK_BATCH_LAST_QID)
+                {
+                    let _ = ev_tx
+                        .send(SessionEvent::Status(format!("locked: {picked}")))
+                        .await;
+                } else if picked.trim().is_empty() {
+                    let _ = ev_tx
+                        .send(SessionEvent::Status("clarify cancelled".into()))
+                        .await;
+                } else {
+                    stream_reply(
+                        &ev_tx,
+                        &format!("You answered **{picked}**.\n\nContinuing with that choice."),
+                    )
                     .await;
+                }
             }
             SessionCommand::RespondSudo { .. } | SessionCommand::RespondSecret { .. } => {
                 let _ = ev_tx
@@ -277,26 +288,7 @@ async fn mock_loop(
             SessionCommand::FetchHistory => {
                 let _ = ev_tx
                     .send(SessionEvent::History {
-                        messages: vec![
-                            TranscriptMessage {
-                                role: "user".into(),
-                                text: "first question".into(),
-                                row_id: Some(11),
-                                display_kind: None,
-                            },
-                            TranscriptMessage {
-                                role: "assistant".into(),
-                                text: "first answer".into(),
-                                row_id: Some(12),
-                                display_kind: None,
-                            },
-                            TranscriptMessage {
-                                role: "user".into(),
-                                text: "second question".into(),
-                                row_id: Some(13),
-                                display_kind: None,
-                            },
-                        ],
+                        messages: mock_history(&user_turns),
                     })
                     .await;
             }
@@ -455,6 +447,7 @@ async fn mock_loop(
                     .await;
             }
             SessionCommand::FetchUsage => {
+                spent_usd += 0.0137;
                 let _ = ev_tx
                     .send(SessionEvent::Usage(crate::session::UsageSnapshot {
                         calls: 2,
@@ -464,7 +457,8 @@ async fn mock_loop(
                         context_used: 4000,
                         context_max: 128000,
                         context_percent: 3,
-                        cost_usd: Some(0.01),
+                        cost_usd: Some(spent_usd),
+                        cost_status: Some("estimated".into()),
                         model: "mock-model".into(),
                         credits_lines: vec!["$10.00 remaining".into()],
                     }))
@@ -615,76 +609,99 @@ fn mock_catalog() -> SessionEvent {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MockScript {
+    Help,
+    Default,
+    Code,
+    Document,
+    Clarify,
+    ClarifyType,
+    ClarifyBatch,
+    Tools,
+    ToolError,
+    Error,
+    Approval,
+    Subagent,
+}
+
+fn script_from_text(text: &str, fallback: MockScenario) -> MockScript {
+    let t = text.to_ascii_lowercase();
+    let words: Vec<&str> = t
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let has = |keys: &[&str]| words.iter().any(|w| keys.contains(w));
+    if has(&["help", "keywords"]) {
+        return MockScript::Help;
+    }
+    if has(&["codeblock", "code", "rust"]) {
+        return MockScript::Code;
+    }
+    if has(&["pdf", "doc", "docs", "document"]) {
+        return MockScript::Document;
+    }
+    if has(&["batch", "questions"]) {
+        return MockScript::ClarifyBatch;
+    }
+    if has(&["ask", "clarify", "select", "question", "choice"]) {
+        return MockScript::Clarify;
+    }
+    if has(&["type", "typed", "input"]) {
+        return MockScript::ClarifyType;
+    }
+    if has(&["toolerror"]) {
+        return MockScript::ToolError;
+    }
+    if has(&["tools", "tool"]) {
+        return MockScript::Tools;
+    }
+    if has(&["error", "fail", "crash"]) {
+        return MockScript::Error;
+    }
+    if has(&["approval", "approve", "danger"]) {
+        return MockScript::Approval;
+    }
+    if has(&["agent", "subagent", "agents"]) {
+        return MockScript::Subagent;
+    }
+    match fallback {
+        MockScenario::Streaming | MockScenario::Home => MockScript::Default,
+        MockScenario::Tools => MockScript::Tools,
+        MockScenario::Approval => MockScript::Approval,
+        MockScenario::Error => MockScript::Error,
+        MockScenario::Subagent => MockScript::Subagent,
+    }
+}
+
 async fn play_scenario(scenario: MockScenario, text: &str, ev_tx: &mpsc::Sender<SessionEvent>) {
-    match scenario {
-        MockScenario::Streaming => {
-            let _ = ev_tx
-                .send(SessionEvent::Thinking {
-                    text: "thinking…".into(),
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(120)).await;
+    play_script(script_from_text(text, scenario), text, ev_tx).await;
+}
+
+async fn play_script(script: MockScript, text: &str, ev_tx: &mpsc::Sender<SessionEvent>) {
+    match script {
+        MockScript::Help => stream_reply(ev_tx, HELP_REPLY).await,
+        MockScript::Default => {
             let reply = format!(
-                "# Mock reply\n\nYou said **{text}**.\n\n- item one\n- item two\n\nUse `Esc` to interrupt.\n"
+                "You said **{text}**.\n\nThis is the streaming mock. Type a keyword:\n\n{HELP_LIST}"
             );
-            for chunk in chunk_chars(&reply, 4) {
-                let _ = ev_tx
-                    .send(SessionEvent::MessageDelta {
-                        session_id: Some("mock-session".into()),
-                        text: chunk,
-                        rendered: None,
-                    })
-                    .await;
-                tokio::time::sleep(Duration::from_millis(40)).await;
-            }
+            stream_reply(ev_tx, &reply).await;
+        }
+        MockScript::Code => stream_reply(ev_tx, CODE_REPLY).await,
+        MockScript::Document => play_document(ev_tx).await,
+        MockScript::Clarify => play_clarify(ev_tx, true).await,
+        MockScript::ClarifyType => play_clarify(ev_tx, false).await,
+        MockScript::ClarifyBatch => play_clarify_batch(ev_tx).await,
+        MockScript::Tools => play_tools(ev_tx).await,
+        MockScript::ToolError => play_tool_error(ev_tx).await,
+        MockScript::Error => {
             let _ = ev_tx
-                .send(SessionEvent::MessageComplete {
-                    session_id: Some("mock-session".into()),
-                    text: Some(reply),
+                .send(SessionEvent::Error {
+                    message: "Mock provider error: the model is unavailable.".into(),
                 })
                 .await;
         }
-        MockScenario::Tools => {
-            let _ = ev_tx
-                .send(SessionEvent::ToolStart {
-                    tool_id: "t1".into(),
-                    name: Some("web_search".into()),
-                    args: Some("query=\"hermes tui_gateway\"".into()),
-                    preview: None,
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let _ = ev_tx
-                .send(SessionEvent::ToolProgress {
-                    tool_id: Some("t1".into()),
-                    name: Some("web_search".into()),
-                    preview: Some("searching…".into()),
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let _ = ev_tx
-                .send(SessionEvent::ToolComplete {
-                    tool_id: "t1".into(),
-                    name: Some("web_search".into()),
-                    result: Some("1 hit: programmatic integration docs".into()),
-                    error: None,
-                })
-                .await;
-            let _ = ev_tx
-                .send(SessionEvent::MessageDelta {
-                    session_id: Some("mock-session".into()),
-                    text: "Tool finished. Here's a mock answer.".into(),
-                    rendered: None,
-                })
-                .await;
-            let _ = ev_tx
-                .send(SessionEvent::MessageComplete {
-                    session_id: Some("mock-session".into()),
-                    text: Some("Tool finished. Here's a mock answer.".into()),
-                })
-                .await;
-        }
-        MockScenario::Approval => {
+        MockScript::Approval => {
             let _ = ev_tx
                 .send(SessionEvent::ApprovalRequest {
                     command: "rm -rf /tmp/mock".into(),
@@ -696,48 +713,337 @@ async fn play_scenario(scenario: MockScenario, text: &str, ev_tx: &mpsc::Sender<
                 })
                 .await;
         }
-        MockScenario::Subagent => {
-            let _ = ev_tx
-                .send(SessionEvent::Subagent {
-                    kind: SubagentKind::Start,
-                    id: "sa-0".into(),
-                    goal: Some("explore the repo".into()),
-                    text: None,
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let _ = ev_tx
-                .send(SessionEvent::Subagent {
-                    kind: SubagentKind::Tool,
-                    id: "sa-0".into(),
-                    goal: Some("explore the repo".into()),
-                    text: Some("list files".into()),
-                })
-                .await;
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let _ = ev_tx
-                .send(SessionEvent::Subagent {
-                    kind: SubagentKind::Complete,
-                    id: "sa-0".into(),
-                    goal: Some("explore the repo".into()),
-                    text: Some("done".into()),
-                })
-                .await;
-            let _ = ev_tx
-                .send(SessionEvent::MessageComplete {
-                    session_id: Some("mock-session".into()),
-                    text: Some("Child finished exploring.".into()),
-                })
-                .await;
-        }
-        MockScenario::Error => {
-            let _ = ev_tx
-                .send(SessionEvent::Error {
-                    message: "Mock provider error: the model is unavailable.".into(),
-                })
-                .await;
+        MockScript::Subagent => play_subagent(ev_tx).await,
+    }
+}
+
+const HELP_LIST: &str = "\
+- `code` — rust fence in the document\n\
+- `pdf` — read a document, then summarize\n\
+- `ask` — pick a choice to continue\n\
+- `type` — type an answer to continue\n\
+- `batch` — three clarify questions in a row\n\
+- `tools` — tool chips\n\
+- `error` — provider error\n\
+- `toolerror` — failed tool\n\
+- `approval` — danger modal\n\
+- `agent` — subagent rollup\n\
+- `help` — this list";
+
+const HELP_REPLY: &str = "\
+# Mock keywords\n\n\
+Enter one of these in the composer:\n\n\
+- `code` — rust fence in the document\n\
+- `pdf` — read a document, then summarize\n\
+- `ask` — pick a choice to continue\n\
+- `type` — type an answer to continue\n\
+- `batch` — three clarify questions in a row\n\
+- `tools` — tool chips\n\
+- `error` — provider error\n\
+- `toolerror` — failed tool\n\
+- `approval` — danger modal\n\
+- `agent` — subagent rollup";
+
+const CODE_REPLY: &str = "\
+# Token verification\n\n\
+The async path sits behind a bounded channel so the event loop is not blocked.\n\n\
+```rust\npub async fn verify_token(token: &str) -> Result<Claims, AuthError> {\n    let decoded = jsonwebtoken::decode::<Claims>(\n        token,\n        &KEYS.decoding,\n        &Validation::default(),\n    )?;\n\n    // Validate expiration claim explicitly\n    Ok(decoded.claims)\n}\n```\n\nEvaluating security boundaries.";
+
+const DOC_REPLY: &str = "\
+# Auth flow (from `auth_flow.pdf`)\n\n\
+## Overview\n\n\
+The current implementation relies on a synchronous blocking call in the event loop. We need an asynchronous bounded channel to prevent stream starvation during high-load authentication spikes.\n\n\
+## Claims\n\n\
+- `sub` — user id\n\
+- `exp` — unix expiry\n\
+- `aud` — API audience\n\n\
+## Next\n\n\
+See the `code` mock for the Rust path.";
+
+async fn stream_reply(ev_tx: &mpsc::Sender<SessionEvent>, reply: &str) {
+    let _ = ev_tx
+        .send(SessionEvent::Thinking {
+            text: "thinking…".into(),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    for chunk in chunk_chars(reply, 6) {
+        let _ = ev_tx
+            .send(SessionEvent::MessageDelta {
+                session_id: Some("mock-session".into()),
+                text: chunk,
+                rendered: None,
+            })
+            .await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let _ = ev_tx
+        .send(SessionEvent::MessageComplete {
+            session_id: Some("mock-session".into()),
+            text: Some(reply.to_string()),
+        })
+        .await;
+}
+
+async fn play_document(ev_tx: &mpsc::Sender<SessionEvent>) {
+    let _ = ev_tx
+        .send(SessionEvent::ToolStart {
+            tool_id: "read-1".into(),
+            name: Some("read_file".into()),
+            args: Some("path=\"docs/auth_flow.pdf\"".into()),
+            preview: Some("auth_flow.pdf".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(90)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolProgress {
+            tool_id: Some("read-1".into()),
+            name: Some("read_file".into()),
+            preview: Some("extracting pages 1–3…".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(90)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolComplete {
+            tool_id: "read-1".into(),
+            name: Some("read_file".into()),
+            result: Some(
+                "PDF 3 pages · Auth flow\n\nSynchronous blocking call in the event loop…".into(),
+            ),
+            error: None,
+        })
+        .await;
+    stream_reply(ev_tx, DOC_REPLY).await;
+}
+
+const MOCK_BATCH_LAST_QID: &str = "q3";
+
+/// Multi-question clarify in the shape current Hermes sends (`questions: [...]`).
+async fn play_clarify_batch(ev_tx: &mpsc::Sender<SessionEvent>) {
+    let _ = ev_tx
+        .send(SessionEvent::ClarifyRequest {
+            request_id: "mock-clarify-batch".into(),
+            payload: json!({"questions": [
+                {
+                    "qid": "q1",
+                    "question": "Which runtime should we target?",
+                    "choices": ["Tokio", "async-std", "Keep blocking"],
+                    "multi_select": false,
+                },
+                {
+                    "qid": "q2",
+                    "question": "What should the new crate be called?",
+                    "choices": [],
+                    "multi_select": false,
+                },
+                {
+                    "qid": MOCK_BATCH_LAST_QID,
+                    "question": "Ship behind a feature flag?",
+                    "choices": ["Yes", "No"],
+                    "multi_select": false,
+                },
+            ]}),
+        })
+        .await;
+}
+
+async fn play_clarify(ev_tx: &mpsc::Sender<SessionEvent>, with_choices: bool) {
+    let payload = if with_choices {
+        json!({
+            "question": "Which runtime should we target for the rewrite?",
+            "choices": ["Tokio", "async-std", "Keep blocking"]
+        })
+    } else {
+        json!({
+            "question": "Name the session title for this auth work."
+        })
+    };
+    let _ = ev_tx
+        .send(SessionEvent::ClarifyRequest {
+            request_id: if with_choices {
+                "mock-clarify".into()
+            } else {
+                "mock-clarify-type".into()
+            },
+            payload,
+        })
+        .await;
+}
+
+async fn play_tools(ev_tx: &mpsc::Sender<SessionEvent>) {
+    let _ = ev_tx
+        .send(SessionEvent::ToolStart {
+            tool_id: "t1".into(),
+            name: Some("web_search".into()),
+            args: Some("query=\"hermes tui_gateway\"".into()),
+            preview: None,
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(70)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolProgress {
+            tool_id: Some("t1".into()),
+            name: Some("web_search".into()),
+            preview: Some("searching…".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(70)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolComplete {
+            tool_id: "t1".into(),
+            name: Some("web_search".into()),
+            result: Some("1 hit: programmatic integration docs".into()),
+            error: None,
+        })
+        .await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolStart {
+            tool_id: "t2".into(),
+            name: Some("execute_code".into()),
+            args: Some("lang=\"rust\" source=\"fn main() {}\"".into()),
+            preview: Some("fn main() {}".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(70)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolComplete {
+            tool_id: "t2".into(),
+            name: Some("execute_code".into()),
+            result: Some("ok".into()),
+            error: None,
+        })
+        .await;
+    stream_reply(
+        ev_tx,
+        "Search and execute both finished. Type `code` to see a fenced block.",
+    )
+    .await;
+}
+
+async fn play_tool_error(ev_tx: &mpsc::Sender<SessionEvent>) {
+    let _ = ev_tx
+        .send(SessionEvent::ToolStart {
+            tool_id: "t-err".into(),
+            name: Some("execute_code".into()),
+            args: Some("lang=\"rust\" source=\"panic!()\"".into()),
+            preview: Some("panic!()".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let _ = ev_tx
+        .send(SessionEvent::ToolComplete {
+            tool_id: "t-err".into(),
+            name: Some("execute_code".into()),
+            result: None,
+            error: Some("thread 'main' panicked at panic!(), src/lib.rs:1:1".into()),
+        })
+        .await;
+    stream_reply(
+        ev_tx,
+        "The tool failed. Open the chip with **Ctrl+O** to read the error.",
+    )
+    .await;
+}
+
+async fn play_subagent(ev_tx: &mpsc::Sender<SessionEvent>) {
+    let _ = ev_tx
+        .send(SessionEvent::Subagent {
+            kind: SubagentKind::Start,
+            id: "sa-0".into(),
+            goal: Some("explore the repo".into()),
+            text: None,
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let _ = ev_tx
+        .send(SessionEvent::Subagent {
+            kind: SubagentKind::Tool,
+            id: "sa-0".into(),
+            goal: Some("explore the repo".into()),
+            text: Some("list files".into()),
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let _ = ev_tx
+        .send(SessionEvent::Subagent {
+            kind: SubagentKind::Complete,
+            id: "sa-0".into(),
+            goal: Some("explore the repo".into()),
+            text: Some("done".into()),
+        })
+        .await;
+    stream_reply(ev_tx, "Child finished exploring.").await;
+}
+
+fn clarify_pick(answers: &serde_json::Value) -> String {
+    if let Some(s) = answers.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = answers.as_array() {
+        let joined: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+        if !joined.is_empty() {
+            return joined.join(", ");
         }
     }
+    if let Some(obj) = answers.as_object() {
+        if let Some(s) = obj
+            .get("text")
+            .or_else(|| obj.get("answer"))
+            .or_else(|| obj.get("choice"))
+            .and_then(|v| v.as_str())
+        {
+            return s.to_string();
+        }
+    }
+    answers.to_string()
+}
+
+fn mock_saved_sessions() -> Vec<SavedSession> {
+    vec![
+        SavedSession {
+            id: "sess-alpha".into(),
+            title: "Yesterday's chat".into(),
+            preview: "we talked about rust".into(),
+            source: "tui".into(),
+            message_count: 6,
+        },
+        SavedSession {
+            id: "sess-beta".into(),
+            title: "CLI notes".into(),
+            preview: "cargo test".into(),
+            source: "cli".into(),
+            message_count: 3,
+        },
+        SavedSession {
+            id: "sess-gamma".into(),
+            title: "Planning".into(),
+            preview: "phase B returning workspace".into(),
+            source: "tui".into(),
+            message_count: 9,
+        },
+    ]
+}
+
+fn mock_history(user_turns: &[String]) -> Vec<TranscriptMessage> {
+    let mut messages = Vec::new();
+    let mut row = 1i64;
+    for text in user_turns {
+        messages.push(TranscriptMessage {
+            role: "user".into(),
+            text: text.clone(),
+            row_id: Some(row),
+            display_kind: None,
+        });
+        row += 1;
+        messages.push(TranscriptMessage {
+            role: "assistant".into(),
+            text: "mock reply".into(),
+            row_id: Some(row),
+            display_kind: None,
+        });
+        row += 1;
+    }
+    messages
 }
 
 fn chunk_chars(s: &str, n: usize) -> Vec<String> {
@@ -772,6 +1078,98 @@ mod tests {
             }
         }
         assert!(complete);
+        mock.send(SessionCommand::Shutdown);
+    }
+
+    #[test]
+    fn keywords_route_in_streaming() {
+        let fb = MockScenario::Streaming;
+        assert_eq!(script_from_text("code", fb), MockScript::Code);
+        assert_eq!(
+            script_from_text("show a codeblock please", fb),
+            MockScript::Code
+        );
+        assert_eq!(script_from_text("pdf", fb), MockScript::Document);
+        assert_eq!(
+            script_from_text("read this document", fb),
+            MockScript::Document
+        );
+        assert_eq!(script_from_text("ask", fb), MockScript::Clarify);
+        assert_eq!(script_from_text("type", fb), MockScript::ClarifyType);
+        assert_eq!(script_from_text("batch", fb), MockScript::ClarifyBatch);
+        assert_eq!(script_from_text("tools", fb), MockScript::Tools);
+        assert_eq!(script_from_text("error", fb), MockScript::Error);
+        assert_eq!(script_from_text("toolerror", fb), MockScript::ToolError);
+        assert_eq!(script_from_text("hello there", fb), MockScript::Default);
+        assert_eq!(
+            script_from_text("hello", MockScenario::Tools),
+            MockScript::Tools
+        );
+    }
+
+    #[tokio::test]
+    async fn keyword_code_streams_a_fence() {
+        let rt = tokio::runtime::Handle::current();
+        let mut mock = MockSession::start(MockScenario::Streaming, &rt);
+        let mut rx = mock.take_events().unwrap();
+        mock.send(SessionCommand::Submit {
+            text: "code".into(),
+        });
+        let mut body = String::new();
+        while let Some(ev) = rx.recv().await {
+            if let SessionEvent::MessageComplete { text, .. } = ev {
+                body = text.unwrap_or_default();
+                break;
+            }
+        }
+        assert!(body.contains("```rust"), "{body}");
+        assert!(body.contains("verify_token"), "{body}");
+        mock.send(SessionCommand::Shutdown);
+    }
+
+    #[tokio::test]
+    async fn keyword_ask_emits_clarify() {
+        let rt = tokio::runtime::Handle::current();
+        let mut mock = MockSession::start(MockScenario::Streaming, &rt);
+        let mut rx = mock.take_events().unwrap();
+        mock.send(SessionCommand::Submit { text: "ask".into() });
+        let mut saw = false;
+        while let Some(ev) = rx.recv().await {
+            if matches!(ev, SessionEvent::ClarifyRequest { .. }) {
+                saw = true;
+                break;
+            }
+        }
+        assert!(saw);
+        mock.send(SessionCommand::Shutdown);
+    }
+
+    #[tokio::test]
+    async fn fetch_history_uses_submitted_prompts() {
+        let rt = tokio::runtime::Handle::current();
+        let mut mock = MockSession::start(MockScenario::Streaming, &rt);
+        let mut rx = mock.take_events().unwrap();
+        mock.send(SessionCommand::Submit {
+            text: "code".into(),
+        });
+        while let Some(ev) = rx.recv().await {
+            if matches!(ev, SessionEvent::MessageComplete { .. }) {
+                break;
+            }
+        }
+        mock.send(SessionCommand::FetchHistory);
+        let mut users = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            if let SessionEvent::History { messages } = ev {
+                users = messages
+                    .into_iter()
+                    .filter(|m| m.role == "user")
+                    .map(|m| m.text)
+                    .collect();
+                break;
+            }
+        }
+        assert_eq!(users, vec!["code".to_string()]);
         mock.send(SessionCommand::Shutdown);
     }
 }

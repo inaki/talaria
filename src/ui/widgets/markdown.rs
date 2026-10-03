@@ -143,20 +143,39 @@ pub fn markdown_to_lines_at(src: &str, width: usize) -> Vec<Line<'static>> {
     lines
 }
 
-/// Hairline rectangle, surface fill, mint type. `width` is the total columns
-/// of the box (including the two vertical bars).
+/// Hairline rectangle hugging the longest line. `width` is a max, not a stretch.
 fn code_fence(body: &[String], width: usize) -> Vec<Line<'static>> {
-    let box_w = width.max(16);
-    let inner = box_w.saturating_sub(2).max(8);
-    let border = Style::default().fg(theme::SEPARATOR()).bg(theme::SURFACE());
-    let code = Style::default().fg(theme::PRIMARY()).bg(theme::SURFACE());
-    let mut out = Vec::with_capacity(body.len() + 4);
+    bordered_block(
+        body,
+        width,
+        Style::default().fg(theme::SEPARATOR()),
+        Style::default().fg(theme::PRIMARY()).bg(theme::SURFACE()),
+    )
+}
+
+/// Rectangle hugging `body`. Border glyphs sit on the canvas (the panel edge);
+/// `fill` is only applied to interior cells.
+pub fn bordered_block(
+    body: &[String],
+    width: usize,
+    border: Style,
+    fill: Style,
+) -> Vec<Line<'static>> {
+    let longest = body
+        .iter()
+        .map(|s| UnicodeWidthStr::width(s.as_str()))
+        .max()
+        .unwrap_or(0);
+    let cap = width.max(12).saturating_sub(2);
+    let inner = longest.clamp(8, cap);
+    let mut out = Vec::with_capacity(body.len() + 2);
     out.push(fence_edge('┌', '┐', inner, border));
-    out.push(fence_row("", inner, border, code));
     for line in body {
-        out.push(fence_row(line, inner, border, code));
+        out.push(fence_row(line, inner, border, fill));
     }
-    out.push(fence_row("", inner, border, code));
+    if body.is_empty() {
+        out.push(fence_row("", inner, border, fill));
+    }
     out.push(fence_edge('└', '┘', inner, border));
     out
 }
@@ -169,7 +188,7 @@ fn fence_edge(left: char, right: char, inner: usize, style: Style) -> Line<'stat
 }
 
 fn fence_row(src: &str, inner: usize, border: Style, code: Style) -> Line<'static> {
-    let mut body = format!("  {src}");
+    let mut body = src.to_string();
     let mut w = UnicodeWidthStr::width(body.as_str());
     if w > inner {
         body = ellipsize(&body, inner);
@@ -253,18 +272,35 @@ mod tests {
         assert!(t.lines().next().unwrap().starts_with('┌'), "{t}");
         assert!(t.lines().next().unwrap().ends_with('┐'), "{t}");
         assert!(t.contains("pub async fn verify_token() {}"), "{t}");
+        assert!(
+            t.contains("│pub async fn verify_token() {}│"),
+            "code sits flush on the border, no inner pad: {t}"
+        );
         assert!(t.contains("// comment"), "{t}");
         assert!(t.lines().last().unwrap().starts_with('└'), "{t}");
         assert!(t.lines().last().unwrap().ends_with('┘'), "{t}");
+        let w = lines[0].width();
+        assert!(w < 40, "box should hug the code, not stretch: {w}");
         assert!(
-            lines.iter().all(|l| l.width() == 40),
+            lines.iter().all(|l| l.width() == w),
             "{:?}",
             lines.iter().map(|l| l.width()).collect::<Vec<_>>()
         );
         assert!(
-            lines.iter().all(|l| l.style.bg.is_none()
-                && l.spans.iter().all(|s| s.style.bg == Some(theme::SURFACE()))),
-            "code box sits on surface fill"
+            lines.iter().all(|l| {
+                let first = l.spans.first().map(|s| s.content.as_ref()).unwrap_or("");
+                first.starts_with('┌') || first.starts_with('└') || first == "│"
+            }),
+            "border glyphs are the box edge"
+        );
+        let inner = lines.iter().flat_map(|l| l.spans.iter()).filter(|s| {
+            s.content.as_ref() != "│"
+                && !s.content.as_ref().starts_with('┌')
+                && !s.content.as_ref().starts_with('└')
+        });
+        assert!(
+            inner.clone().all(|s| s.style.bg == Some(theme::SURFACE())),
+            "fill stays inside the border"
         );
     }
 }

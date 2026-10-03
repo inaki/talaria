@@ -56,6 +56,17 @@ impl KeyHints {
         ])
     }
 
+    /// Clarify dock: Esc answers Hermes with a cancel, it doesn't just hide.
+    pub fn clarify(has_choices: bool) -> Self {
+        let mut items = Vec::new();
+        if has_choices {
+            items.push(("↑↓", "select"));
+        }
+        items.push(("Enter", "answer"));
+        items.push(("Esc", "cancel"));
+        Self::new(items)
+    }
+
     pub fn confirm_quit() -> Self {
         Self::new(vec![("y", "quit"), ("Esc", "cancel")])
     }

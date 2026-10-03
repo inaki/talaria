@@ -139,8 +139,8 @@ pub struct Chat {
     /// Last `session.list` payload. Empty-state shows up to three, excluding current.
     pub(crate) recent_sessions: Vec<SavedSession>,
     pub(crate) recent_selected: usize,
-    /// (start_row, len, index) for clickable recents on the empty state.
-    pub(crate) recent_hits: Vec<(u16, u16, usize)>,
+    /// Clickable recents on the empty state: (row, h, col, w, index).
+    pub(crate) recent_hits: Vec<(u16, u16, u16, u16, usize)>,
     /// Last `/model` write: `Some(true)` = Hermes `--global`, `Some(false)` = this session.
     pub(crate) model_persist_global: Option<bool>,
     /// Images dropped into the composer for the turn being written. `[Image #n]`
@@ -446,29 +446,7 @@ impl Chat {
                 request_id,
                 payload,
             } => {
-                let question = payload
-                    .get("question")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Hermes has a question")
-                    .to_string();
-                let choices = payload.get("choices").and_then(|v| {
-                    v.as_array().map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                            .collect::<Vec<_>>()
-                    })
-                });
-                let choices = match choices {
-                    Some(c) if c.is_empty() => None,
-                    other => other,
-                };
-                self.overlay = Overlay::Clarify {
-                    request_id,
-                    question,
-                    choices,
-                    selected: 0,
-                    draft: String::new(),
-                };
+                self.overlay = Overlay::clarify(request_id, &payload);
             }
             SessionEvent::SudoRequest { request_id } => {
                 self.overlay = Overlay::Sudo {
@@ -741,9 +719,14 @@ impl Chat {
                 }
                 self.scroll_to_bottom();
             }
-            SessionEvent::Usage(snapshot) => {
+            SessionEvent::Usage(mut snapshot) => {
                 if !snapshot.model.is_empty() {
                     self.model = snapshot.model.clone();
+                }
+                // The live `session.usage` ticker omits credits_lines (only the
+                // RPC fills them); keep the last known lines.
+                if snapshot.credits_lines.is_empty() {
+                    snapshot.credits_lines = std::mem::take(&mut self.usage.credits_lines);
                 }
                 self.usage = snapshot.clone();
                 if let Some(ins) = &mut self.inspector {
@@ -1222,9 +1205,13 @@ impl Chat {
             })
     }
 
-    fn recent_at_visual_row(&self, visual_row: u16) -> Option<usize> {
-        self.recent_hits.iter().find_map(|(start, len, i)| {
-            if visual_row >= *start && visual_row < start.saturating_add(*len) {
+    fn recent_at_visual_row(&self, visual_row: u16, visual_col: u16) -> Option<usize> {
+        self.recent_hits.iter().find_map(|(start, len, col, w, i)| {
+            if visual_row >= *start
+                && visual_row < start.saturating_add(*len)
+                && visual_col >= *col
+                && visual_col < col.saturating_add(*w)
+            {
                 Some(*i)
             } else {
                 None
@@ -1356,8 +1343,8 @@ impl Chat {
                     }
                 } else {
                     self.selection = None;
-                    if let Some((row, _)) = self.mouse_in_transcript(&mouse) {
-                        if let Some(i) = self.recent_at_visual_row(row) {
+                    if let Some((row, col)) = self.mouse_in_transcript(&mouse) {
+                        if let Some(i) = self.recent_at_visual_row(row, col) {
                             return self.resume_recent(i);
                         }
                         if let Some(i) = self.tool_at_visual_row(row) {
@@ -1459,6 +1446,8 @@ impl Chat {
             KeyHints::confirm_quit()
         } else if self.palette.is_active() {
             KeyHints::slash()
+        } else if let Overlay::Clarify { choices, .. } = &self.overlay {
+            KeyHints::clarify(choices.is_some())
         } else if self.inspector.is_some() || self.sheet.is_some() || self.overlay.is_open() {
             KeyHints::overlay()
         } else if self.slash.is_active() {
@@ -1631,23 +1620,30 @@ fn help_lines(update: Option<&str>, hermes: Option<&str>) -> Vec<String> {
     }
     lines.extend([
         String::new(),
-        "Enter            send (steer if a turn is running)".into(),
-        "Ctrl+Enter       queue follow-up".into(),
-        "Ctrl+K           command palette".into(),
-        "Shift+Enter      newline".into(),
-        "/                slash catalog".into(),
-        "!cmd             local shell".into(),
-        "Esc              interrupt / dismiss".into(),
-        "Ctrl+C then y    quit".into(),
+        "Enter\tsend (steer if a turn is running)".into(),
+        "Ctrl+Enter\tqueue follow-up".into(),
+        "Ctrl+K\tcommand palette".into(),
+        "Shift+Enter\tnewline".into(),
+        "/\tslash catalog".into(),
+        "!cmd\tlocal shell".into(),
+        "Esc\tinterrupt / dismiss".into(),
+        "Ctrl+C then y\tquit".into(),
         String::new(),
-        "/new             new session".into(),
-        "/clear           wipe the view (not a new session)".into(),
-        "/sessions        sheet: saved vs live".into(),
-        "/trees           sheet: spawn trees (s save)".into(),
-        "/rewind /model /skills /plugins /mcp /agents /usage /skin".into(),
-        "Ctrl+O / click   tool inspector".into(),
-        "Ctrl+V           paste text, else clipboard image".into(),
-        "c in inspector   copy body".into(),
+        "/new\tnew session".into(),
+        "/clear\twipe the view (not a new session)".into(),
+        "/sessions\tsheet: saved vs live".into(),
+        "/trees\tsheet: spawn trees (s save)".into(),
+        "/rewind\tregenerate from a user turn".into(),
+        "/model\tprovider + model".into(),
+        "/skills\tbrowse skills".into(),
+        "/plugins\ttoggle plugins".into(),
+        "/mcp\tMCP servers".into(),
+        "/agents\tsubagents".into(),
+        "/usage\ttokens and cost".into(),
+        "/skin\tcolor skin".into(),
+        "Ctrl+O\ttool inspector".into(),
+        "Ctrl+V\tpaste text, else clipboard image".into(),
+        "c\tcopy inspector body".into(),
     ]);
     lines
 }
@@ -1704,19 +1700,16 @@ fn merge_host_slash_commands(items: &mut Vec<SlashItem>) {
 
 fn rewind_turns_from_timeline(items: &[TimelineItem]) -> Vec<crate::session::RewindTurn> {
     let mut turns = Vec::new();
-    for item in items {
-        if let TimelineItem::User {
-            text,
-            row_id: Some(row_id),
-        } = item
-        {
-            let first = turns.is_empty();
-            turns.push(crate::session::RewindTurn {
-                row_id: *row_id,
-                text: text.clone(),
-                first,
-            });
-        }
+    for (i, item) in items.iter().enumerate() {
+        let TimelineItem::User { text, row_id } = item else {
+            continue;
+        };
+        let first = turns.is_empty();
+        turns.push(crate::session::RewindTurn {
+            row_id: row_id.unwrap_or(i as i64 + 1),
+            text: text.clone(),
+            first,
+        });
     }
     turns
 }

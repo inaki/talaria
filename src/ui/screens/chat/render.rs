@@ -1,4 +1,4 @@
-use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
@@ -7,23 +7,39 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::theme;
 use crate::ui::screens::chat::TimelineItem;
-use crate::ui::widgets::markdown_to_lines_at;
+use crate::ui::widgets::{bordered_block, markdown_to_lines_at, mascot_lines, mascot_width};
 
 use super::Chat;
 
 /// Same 1-cell gutter as the gap between a rounded panel and the terminal edge.
 const EDGE_PAD: u16 = 1;
+/// Assistant body column: edge pad + "● ", so replies align under user text.
+const ASSISTANT_INDENT: usize = EDGE_PAD as usize + 2;
 
 pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     let show_bar = crate::prefs::status_bar();
     let show_hints = crate::prefs::key_hints();
+
+    // The rail takes columns off the right before anything else is laid out, so
+    // the transcript (and therefore drag-copy) never overlaps it. Hosted
+    // surfaces below still use the full `area` — they are modal over the rail.
+    let (area, rail_area) = split_rail(area);
+    if let Some(rail) = rail_area {
+        draw_rail(chat, f, rail);
+    }
+
+    let dock = chat.overlay.is_composer_dock();
+    let show_bar = show_bar && !dock;
     // 1 content row + top/bottom border. Soft-wrap and Shift+Enter grow the box.
     let wrap_cols = area.width.saturating_sub(4); // borders + "› "
-    let composer_h = chat
-        .composer
-        .visual_lines(wrap_cols)
-        .saturating_add(2)
-        .max(3);
+    let composer_h = if dock {
+        super::overlay::composer_dock_height(&chat.overlay)
+    } else {
+        chat.composer
+            .visual_lines(wrap_cols)
+            .saturating_add(2)
+            .max(3)
+    };
     let mut constraints = vec![Constraint::Min(3)];
     if show_bar {
         constraints.push(Constraint::Length(EDGE_PAD));
@@ -54,9 +70,13 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     }
     let composer = chunks[i];
     i += 1;
-    draw_composer(chat, f, composer);
-    if chat.slash.is_active() {
-        chat.slash.render_above_input(f, composer);
+    if dock {
+        super::overlay::paint_composer_dock(f, composer, &chat.overlay);
+    } else {
+        draw_composer(chat, f, composer);
+        if chat.slash.is_active() {
+            chat.slash.render_above_input(f, composer);
+        }
     }
     if show_hints {
         f.render_widget(chat.key_hints_impl(), gutter(chunks[i]));
@@ -80,6 +100,41 @@ pub(super) fn draw(chat: &mut Chat, f: &mut Frame, area: Rect) {
     if chat.confirm_quit {
         draw_quit_modal(f, area);
     }
+}
+
+/// `(body, rail)` — `rail` is `None` when the pref is off or the terminal is
+/// too narrow to spare the columns.
+fn split_rail(area: Rect) -> (Rect, Option<Rect>) {
+    if !crate::ui::widgets::rail_visible(area.width) {
+        return (area, None);
+    }
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(crate::ui::widgets::RAIL_WIDTH),
+        ])
+        .split(area);
+    (chunks[0], Some(chunks[1]))
+}
+
+fn draw_rail(chat: &Chat, f: &mut Frame, area: Rect) {
+    let meter = chat.meter();
+    crate::ui::widgets::render_rail(
+        f,
+        area,
+        &crate::ui::widgets::RailData {
+            title: &chat.session_title,
+            model: &meter.model,
+            git_branch: &meter.git_branch,
+            usage: &meter.usage,
+            agents: &chat.agents,
+            tool_count: chat.tools.len(),
+            skill_count: chat.skills.len(),
+            cwd: &chat.cwd,
+            version: &chat.version,
+        },
+    );
 }
 
 fn gutter(area: Rect) -> Rect {
@@ -116,23 +171,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
         let hit_start = lines.len() as u16;
         match item {
             TimelineItem::User { text: t, .. } => {
-                let mut first = true;
-                let indent = " ".repeat(EDGE_PAD as usize);
-                for l in t.split('\n') {
-                    if first {
-                        lines.push(Line::from(vec![
-                            Span::raw(indent.clone()),
-                            Span::styled("● ", theme::user().add_modifier(Modifier::BOLD)),
-                            Span::styled(l.to_string(), theme::text()),
-                        ]));
-                        first = false;
-                    } else {
-                        lines.push(Line::from(Span::styled(
-                            format!("{indent}  {l}"),
-                            theme::text(),
-                        )));
-                    }
-                }
+                lines.extend(user_block(t, col_w));
                 lines.push(Line::from(""));
             }
             TimelineItem::Assistant { text, streaming } => {
@@ -142,7 +181,10 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                         body.push(Line::from(Span::styled(l.to_string(), theme::assistant())));
                     }
                 } else {
-                    body = markdown_to_lines_at(text, panel_width(col_w).saturating_sub(2));
+                    body = markdown_to_lines_at(
+                        text,
+                        panel_width(col_w).saturating_sub(ASSISTANT_INDENT),
+                    );
                 }
                 lines.extend(assistant_card(body, *streaming, col_w));
                 lines.push(Line::from(""));
@@ -209,7 +251,7 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
                 lines.push(Line::from(Span::styled(s.clone(), theme::dim())));
             }
             TimelineItem::Error(s) => {
-                lines.push(Line::from(Span::styled(s.clone(), theme::error())));
+                lines.extend(error_block(s, col_w));
                 lines.push(Line::from(""));
             }
             TimelineItem::Subagent { label, .. } => {
@@ -298,11 +340,100 @@ fn draw_transcript(chat: &mut Chat, f: &mut Frame, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
+fn splash_shows_mascot(area: Rect) -> bool {
+    let left = area.width.saturating_mul(40) / 100;
+    left >= mascot_width() && area.height >= 14
+}
+
+fn wordmark_lines(area: Rect, reserve_mascot: bool) -> Vec<Line<'static>> {
+    let compact = vec![Line::from(Span::styled(
+        "TALARIA",
+        theme::accent().add_modifier(Modifier::BOLD),
+    ))];
+    let logo = crate::ui::widgets::logo_lines();
+    let logo_w = logo.iter().map(|l| l.width() as u16).max().unwrap_or(0);
+    let logo_h = logo.len() as u16;
+    if area.width < logo_w.saturating_add(2) {
+        return compact;
+    }
+    if reserve_mascot && area.height.saturating_sub(logo_h) < 12 {
+        return compact;
+    }
+    if area.height <= logo_h.saturating_add(6) {
+        return compact;
+    }
+    logo
+}
+
 fn draw_splash(chat: &mut Chat, f: &mut Frame, area: Rect) {
-    let (lines, hits) = splash_layout(chat, area);
-    chat.recent_hits = hits;
-    chat.plain_rows = lines.iter().map(line_plain).collect();
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    let inner = area.inner(Margin {
+        horizontal: EDGE_PAD,
+        vertical: EDGE_PAD,
+    });
+    if inner.width == 0 || inner.height == 0 {
+        chat.recent_hits.clear();
+        chat.plain_rows.clear();
+        return;
+    }
+    let show_mascot = splash_shows_mascot(inner);
+    let wordmark = wordmark_lines(inner, show_mascot);
+    let header_h = (wordmark.len() as u16).min(inner.height);
+    let mut constraints = vec![Constraint::Length(header_h)];
+    if inner.height > header_h.saturating_add(1) {
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Min(1));
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+    f.render_widget(
+        Paragraph::new(wordmark).alignment(Alignment::Center),
+        rows[0],
+    );
+    let body = *rows.last().unwrap();
+
+    let copy_area = if show_mascot {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .split(body);
+        let mascot = mascot_lines();
+        let mh = mascot.len() as u16;
+        let pane = cols[0];
+        let mascot_area = if pane.height > mh {
+            let pad = (pane.height - mh) / 2;
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(pad),
+                    Constraint::Length(mh),
+                    Constraint::Min(0),
+                ])
+                .split(pane)[1]
+        } else {
+            pane
+        };
+        f.render_widget(
+            Paragraph::new(mascot).alignment(Alignment::Center),
+            mascot_area,
+        );
+        cols[1]
+    } else {
+        body
+    };
+
+    let (copy, local_hits) = splash_copy(chat, copy_area);
+    let row0 = copy_area.y.saturating_sub(area.y);
+    let col0 = copy_area.x.saturating_sub(area.x);
+    chat.recent_hits = local_hits
+        .into_iter()
+        .map(|(start, len, i)| (row0.saturating_add(start), len, col0, copy_area.width, i))
+        .collect();
+    let mut plain = vec![String::new(); row0 as usize];
+    plain.extend(copy.iter().map(line_plain));
+    chat.plain_rows = plain;
+    f.render_widget(Paragraph::new(copy), copy_area);
 }
 
 #[cfg(test)]
@@ -310,31 +441,31 @@ fn splash_lines(chat: &Chat, area: Rect) -> Vec<Line<'static>> {
     splash_layout(chat, area).0
 }
 
+#[cfg(test)]
 fn splash_layout(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
+    let show_mascot = splash_shows_mascot(area);
+    let mut lines = wordmark_lines(area, show_mascot);
+    lines.push(Line::from(""));
+    let (copy, hits) = splash_copy(chat, area);
+    let off = lines.len() as u16;
+    lines.extend(copy);
+    let hits = hits
+        .into_iter()
+        .map(|(start, len, i)| (off.saturating_add(start), len, i))
+        .collect();
+    (lines, hits)
+}
+
+fn splash_copy(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
     if chat.is_returning_empty() {
-        returning_lines(chat, area)
+        returning_copy(chat, area)
     } else {
-        (first_run_lines(chat, area), Vec::new())
+        (first_run_copy(chat), Vec::new())
     }
 }
 
-fn first_run_lines(chat: &Chat, area: Rect) -> Vec<Line<'static>> {
+fn first_run_copy(chat: &Chat) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
-    for _ in 0..EDGE_PAD {
-        lines.push(Line::from(""));
-    }
-
-    let logo = crate::ui::widgets::logo_lines();
-    let logo_w = logo.iter().map(|l| l.width() as u16).max().unwrap_or(0);
-    let logo_h = logo.len() as u16;
-    if area.width >= logo_w && area.height > logo_h.saturating_add(10) {
-        lines.extend(logo);
-    } else {
-        lines.push(Line::from(Span::styled(
-            "TALARIA",
-            theme::accent().add_modifier(Modifier::BOLD),
-        )));
-    }
     lines.push(Line::from(Span::styled(
         crate::ui::widgets::tagline(),
         theme::dim(),
@@ -368,16 +499,9 @@ fn first_run_lines(chat: &Chat, area: Rect) -> Vec<Line<'static>> {
     lines
 }
 
-fn returning_lines(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
+fn returning_copy(chat: &Chat, area: Rect) -> (Vec<Line<'static>>, Vec<(u16, u16, usize)>) {
     let mut lines: Vec<Line> = Vec::new();
     let mut hits: Vec<(u16, u16, usize)> = Vec::new();
-    for _ in 0..EDGE_PAD {
-        lines.push(Line::from(""));
-    }
-    lines.push(Line::from(Span::styled(
-        "TALARIA",
-        theme::accent().add_modifier(Modifier::BOLD),
-    )));
     lines.push(Line::from(Span::styled(
         crate::ui::widgets::tagline(),
         theme::dim(),
@@ -457,10 +581,6 @@ fn border_style() -> Style {
     theme::hairline()
 }
 
-fn rule_style() -> Style {
-    theme::accent()
-}
-
 fn b(s: &str) -> Span<'static> {
     Span::styled(s.to_string(), border_style())
 }
@@ -488,58 +608,112 @@ fn panel_width(col_w: u16) -> usize {
     (col_w as usize).max(12)
 }
 
-/// Official brand mark (staff of Asclepius), same glyph as Hermes CLI `response_label`.
-const RESPONSE_MARK: &str = "⚕";
+/// Your turn: a full-width surface band (one row of padding above and below)
+/// so prompts stand apart from replies, which sit on the terminal background.
+fn user_block(text: &str, width: u16) -> Vec<Line<'static>> {
+    let width = panel_width(width);
+    let band = Style::default().bg(theme::SURFACE());
+    let inner = width.saturating_sub(ASSISTANT_INDENT + EDGE_PAD as usize);
+    let lead = " ".repeat(EDGE_PAD as usize);
+    let pad_row = || Line::from(Span::raw(" ".repeat(width))).style(band);
+    let mut out = vec![pad_row()];
+    let mut first = true;
+    for l in text.split('\n') {
+        for row in wrap_line(
+            Line::from(Span::styled(l.to_string(), theme::text())),
+            inner,
+        ) {
+            let mut spans = vec![Span::raw(lead.clone())];
+            if first {
+                spans.push(Span::styled(
+                    "● ",
+                    theme::user().add_modifier(Modifier::BOLD),
+                ));
+                first = false;
+            } else {
+                spans.push(Span::raw("  "));
+            }
+            spans.extend(row.spans);
+            let used = Line::from(spans.clone()).width();
+            spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+            out.push(Line::from(spans).style(band));
+        }
+    }
+    out.push(pad_row());
+    out
+}
 
-/// Document turn: mint left rule, gold author. Fill only while streaming.
+/// Document turn: accent bullet, first line of the reply beside it, the rest
+/// aligned under it. No rule or card chrome — the terminal background.
 fn assistant_card(body: Vec<Line<'static>>, streaming: bool, width: u16) -> Vec<Line<'static>> {
     let width = panel_width(width);
-    let inner = width.saturating_sub(2);
-    let mut title = vec![
-        Span::styled("│ ", rule_style()),
-        Span::styled("● ", theme::accent()),
-        Span::styled(RESPONSE_MARK, theme::agent()),
-        Span::raw(" "),
-        Span::styled("Hermes", theme::agent().add_modifier(Modifier::BOLD)),
-    ];
-    if streaming {
-        title.push(Span::styled(" ▍", theme::dim()));
-    }
-    let mut out = vec![paint_card(
-        pad_rule_line(Line::from(title), inner, width),
-        streaming,
-    )];
-    if body.is_empty() {
-        let placeholder = if streaming {
-            Line::from(Span::styled("▍", theme::dim()))
+    let lead = " ".repeat(EDGE_PAD as usize);
+    let body_indent = " ".repeat(ASSISTANT_INDENT);
+    let inner = width.saturating_sub(ASSISTANT_INDENT);
+    let bullet = || vec![Span::raw(lead.clone()), Span::styled("● ", theme::accent())];
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    for line in body {
+        if is_code_fence_line(&line) {
+            // Fences are already sized to `inner`; wrapping would split the box.
+            rows.push(line);
         } else {
-            Line::from("")
-        };
-        out.push(paint_card(rule_row(placeholder, inner, width), streaming));
-    } else {
-        for line in body {
-            for row in wrap_line(line, inner) {
-                out.push(paint_card(rule_row(row, inner, width), streaming));
-            }
+            rows.extend(wrap_line(line, inner));
         }
+    }
+    if streaming {
+        // Cursor trails the text; a fence (or nothing yet) gets its own row.
+        let cursor = Span::styled("▍", theme::dim());
+        match rows.last_mut() {
+            Some(last) if !is_code_fence_line(last) && last.width() < inner => {
+                last.spans.push(cursor)
+            }
+            _ => rows.push(Line::from(cursor)),
+        }
+    }
+    // A fence can't share the bullet row; give the bullet its own line.
+    let bullet_alone = rows.first().is_none_or(is_code_fence_line);
+    let mut out = Vec::with_capacity(rows.len() + 1);
+    if bullet_alone {
+        out.push(Line::from(bullet()));
+    }
+    for (i, row) in rows.into_iter().enumerate() {
+        let mut spans = if i == 0 && !bullet_alone {
+            bullet()
+        } else {
+            vec![Span::raw(body_indent.clone())]
+        };
+        spans.extend(row.spans);
+        out.push(Line::from(spans));
     }
     out
 }
 
-fn rule_row(content: Line<'static>, inner: usize, _width: usize) -> Line<'static> {
-    let mut spans = vec![Span::styled("│ ", rule_style())];
-    let content_w = content.width().min(inner);
-    spans.extend(content.spans);
-    spans.push(Span::raw(" ".repeat(inner.saturating_sub(content_w))));
-    Line::from(spans)
+/// Red left rule + error panel, same object language as a response / code fence.
+fn error_block(text: &str, width: u16) -> Vec<Line<'static>> {
+    let width = panel_width(width);
+    let inner = width.saturating_sub(1);
+    let body: Vec<String> = text.lines().map(str::to_string).collect();
+    let panel = bordered_block(
+        &body,
+        inner,
+        theme::hairline(),
+        Style::default().fg(theme::ERROR()).bg(theme::SURFACE()),
+    );
+    panel
+        .into_iter()
+        .map(|line| {
+            let mut spans = vec![Span::styled("│", theme::error())];
+            spans.extend(line.spans);
+            Line::from(spans)
+        })
+        .collect()
 }
 
-fn pad_rule_line(mut line: Line<'static>, inner: usize, _width: usize) -> Line<'static> {
-    let used = line.width().saturating_sub(2);
-    if used < inner {
-        line.spans.push(Span::raw(" ".repeat(inner - used)));
-    }
-    line
+fn is_code_fence_line(line: &Line<'_>) -> bool {
+    line.spans.first().is_some_and(|s| {
+        let t = s.content.as_ref();
+        t.starts_with('┌') || t.starts_with('└') || t == "│"
+    })
 }
 
 fn rounded_panel(
@@ -915,14 +1089,51 @@ mod tests {
     }
 
     #[test]
-    fn assistant_card_uses_brand_title_and_even_rows() {
-        let lines = assistant_card(vec![Line::from("hello")], false, 40);
+    fn error_block_uses_red_rule_and_panel() {
+        let lines = error_block("Mock provider error: the model is unavailable.", 60);
         let vis = visible(&lines);
-        assert!(vis[0].contains(RESPONSE_MARK), "{vis:?}");
-        assert!(vis[0].contains("Hermes"), "{vis:?}");
-        assert!(vis.iter().all(|row| row.starts_with('│')), "{vis:?}");
-        assert!(!vis[0].starts_with('╭'), "{vis:?}");
-        assert!(vis.iter().any(|row| row.contains("hello")), "{vis:?}");
+        assert!(vis[0].starts_with('│'), "{vis:?}");
+        assert!(vis.iter().any(|r| r.contains('┌')), "{vis:?}");
+        assert!(
+            vis.iter().any(|r| r.contains("Mock provider error")),
+            "{vis:?}"
+        );
+        assert!(vis.iter().any(|r| r.contains('└')), "{vis:?}");
+        assert!(
+            vis.iter().all(|r| !r.contains("● error")),
+            "no extra error title: {vis:?}"
+        );
+    }
+
+    #[test]
+    fn assistant_card_starts_reply_beside_bullet() {
+        let lines = assistant_card(vec![Line::from("hello"), Line::from("world")], false, 40);
+        let vis = visible(&lines);
+        assert_eq!(vis[0], " ● hello", "{vis:?}");
+        assert_eq!(vis[1], "   world", "rest aligns under the text: {vis:?}");
+        assert!(
+            vis.iter().all(|row| !row.contains('│')),
+            "no left rule: {vis:?}"
+        );
+    }
+
+    #[test]
+    fn assistant_card_puts_fence_below_bullet() {
+        let lines = assistant_card(vec![Line::from("┌──┐")], false, 40);
+        let vis = visible(&lines);
+        assert_eq!(vis[0].trim_end(), " ●", "{vis:?}");
+        assert!(vis[1].starts_with("   ┌"), "{vis:?}");
+    }
+
+    #[test]
+    fn user_block_is_a_full_width_band() {
+        let lines = user_block("ask\nmore", 30);
+        let vis = visible(&lines);
+        assert_eq!(lines.len(), 4, "pad, two rows, pad: {vis:?}");
+        assert!(vis[1].starts_with(" ● ask"), "{vis:?}");
+        assert!(vis[2].starts_with("   more"), "{vis:?}");
+        assert!(lines.iter().all(|l| l.width() == 30), "{vis:?}");
+        assert!(lines.iter().all(|l| l.style.bg == Some(theme::SURFACE())));
     }
 
     #[test]
@@ -935,11 +1146,11 @@ mod tests {
     }
 
     #[test]
-    fn assistant_card_fills_while_streaming() {
+    fn assistant_card_has_no_fill_while_streaming() {
         let lines = assistant_card(vec![Line::from("hello")], true, 40);
         assert!(
-            lines.iter().all(|l| l.style.bg == Some(theme::SURFACE())),
-            "streaming assistant card uses Talaria surface fill"
+            lines.iter().all(|l| l.style.bg.is_none()),
+            "streaming reply stays on the terminal background"
         );
     }
 
@@ -951,7 +1162,10 @@ mod tests {
         chat.tools = vec![("core".into(), vec!["terminal".into()])];
         chat.skills = vec![("dev".into(), vec!["review".into()])];
         let t = visible(&splash_lines(&chat, Rect::new(0, 0, 40, 12))).join("\n");
-        assert!(t.contains("TALARIA"), "{t}");
+        assert!(
+            t.contains("TALARIA") || t.contains('█'),
+            "wordmark missing: {t}"
+        );
         assert!(t.contains("Native TUI host for Hermes Agent"), "{t}");
         assert!(t.contains("Talaria is ready."), "{t}");
         assert!(t.contains("Ctrl+K"), "{t}");
@@ -986,13 +1200,62 @@ mod tests {
             },
         ];
         let t = visible(&splash_lines(&chat, Rect::new(0, 0, 80, 24))).join("\n");
-        assert!(t.contains("TALARIA"), "{t}");
+        assert!(
+            t.contains("TALARIA") || t.contains('█'),
+            "wordmark missing: {t}"
+        );
         assert!(t.contains("auth refactor"), "{t}");
         assert!(t.contains("notes"), "{t}");
         assert!(t.contains("1–3"), "{t}");
         assert!(!t.contains("Talaria is ready."), "{t}");
         assert!(!t.contains("Welcome to Hermes"), "{t}");
         assert!(!t.contains("Available Tools"), "{t}");
+    }
+
+    #[test]
+    fn splash_two_panes_wordmark_and_mascot() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let mut chat = super::super::Chat::new();
+        chat.model = "ox-alpha".into();
+        chat.cwd = "/tmp".into();
+        let mut term = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        term.draw(|f| draw_splash(&mut chat, f, f.area())).unwrap();
+        let buf = term.backend().buffer();
+        let mut s = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                s.push_str(buf[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
+        assert!(
+            s.contains("TALARIA") || s.contains('█'),
+            "header wordmark missing:\n{s}"
+        );
+        assert!(
+            s.chars().any(|c| ('\u{2800}'..='\u{28FF}').contains(&c)),
+            "left pane should be the braille mascot:\n{s}"
+        );
+        assert!(s.contains("Native TUI host for Hermes Agent"), "{s}");
+        assert!(s.contains("Talaria is ready."), "{s}");
+        let mut mascot_on_right = false;
+        let mut copy_on_left = false;
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let ch = buf[(x, y)].symbol().chars().next().unwrap_or('\0');
+                if ('\u{2800}'..='\u{28FF}').contains(&ch) && x >= 40 {
+                    mascot_on_right = true;
+                }
+                if buf[(x, y)].symbol() == "N" && x < 40 {
+                    // tagline starts with "Native"
+                    copy_on_left = true;
+                }
+            }
+        }
+        assert!(!mascot_on_right, "mascot should stay in the 40% left pane");
+        assert!(!copy_on_left, "copy should stay in the 60% right pane");
     }
 
     #[test]
@@ -1041,5 +1304,53 @@ mod tests {
         assert!(vis.contains("terminal"), "{vis}");
         assert!(vis.ends_with('╮'), "{vis}");
         assert!(line.width() < 80, "{}", line.width());
+    }
+}
+
+#[cfg(test)]
+mod rail_layout_tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::ui::widgets::RAIL_WIDTH;
+
+    /// `split_rail` is the seam that keeps the rail out of the transcript, and
+    /// therefore out of `plain_rows` / drag-copy. Exercise it directly: the
+    /// pref is process-global, so asserting on the real render would make these
+    /// order-dependent against other tests.
+    #[test]
+    fn body_loses_exactly_the_rail_columns() {
+        let area = Rect::new(0, 0, 140, 30);
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(RAIL_WIDTH)])
+            .split(area);
+        assert_eq!(chunks[1].width, RAIL_WIDTH);
+        assert_eq!(chunks[0].width, 140 - RAIL_WIDTH);
+        // The rail sits flush against the right edge, so the document keeps a
+        // contiguous block starting at x=0.
+        assert_eq!(chunks[0].x, 0);
+        assert_eq!(chunks[1].x, 140 - RAIL_WIDTH);
+    }
+
+    /// With the pref off (the default) the rail must not steal columns.
+    #[test]
+    fn rail_off_by_default_gives_the_document_everything() {
+        let (body, rail) = split_rail(Rect::new(0, 0, 140, 30));
+        assert!(rail.is_none(), "rail is opt-in");
+        assert_eq!(body.width, 140);
+    }
+
+    /// The whole screen still paints at an awkward size with the rail region
+    /// requested — guards against a panic from a zero-width inner rect.
+    #[test]
+    fn renders_without_panic_at_tight_sizes() {
+        for (w, h) in [(140u16, 24u16), (100, 12), (80, 10), (40, 8)] {
+            let mut chat = Chat::new();
+            chat.push_user("hello".into());
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| draw(&mut chat, f, f.area())).unwrap();
+        }
     }
 }

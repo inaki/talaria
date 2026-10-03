@@ -77,7 +77,9 @@ cargo run -- --theme default
 
 ```bash
 cargo test
-cargo run -- --dev --mock=streaming --theme default
+cargo run -- --dev --mock=home        # first-run splash
+cargo run -- --dev --mock=streaming   # returning home + composer keywords
+# keywords: code · pdf · ask · type · tools · error · approval · agent · help
 cargo run -- --dev --mock=tools
 cargo run -- --dev --mock=approval
 ```
@@ -87,6 +89,7 @@ cargo run -- --dev --mock=approval
 ```bash
 cargo run --example dump_gateway                 # spawn → ready → create → close (no model)
 cargo run --example dump_gateway -- --prompt hi  # calls your configured model
+cargo run --example mascot                       # winged sneaker as Braille dots (like caduceus)
 ```
 
 ---

@@ -12,6 +12,8 @@ use ratatui::Frame;
 use crate::session::{ActiveSession, RewindTurn, SavedSession, SpawnTreeEntry, SubagentRow};
 use crate::theme;
 use crate::ui::keys::{is_ctrl_d, is_ctrl_n, typed_char};
+use crate::ui::widgets::selector;
+use unicode_width::UnicodeWidthStr;
 
 const VISIBLE: usize = 16;
 
@@ -264,6 +266,12 @@ impl Sheet {
         self.clamp_selection();
     }
 
+    /// Id of the highlighted row. Callers switch on this rather than on
+    /// `selected`, so inserting a row cannot silently rebind a toggle.
+    pub fn selected_id(&self) -> Option<String> {
+        self.rows().get(self.selected).map(|r| r.id.clone())
+    }
+
     pub fn rows(&self) -> Vec<SheetRow> {
         let q = self.query.to_ascii_lowercase();
         match &self.kind {
@@ -339,6 +347,14 @@ impl Sheet {
                             if prefs.key_hints { "on" } else { "off" }
                         ),
                         subtitle: "shortcut row under the prompt".into(),
+                    },
+                    SheetRow {
+                        id: "rail".into(),
+                        title: format!("rail        {}", if prefs.rail { "on" } else { "off" }),
+                        subtitle: format!(
+                            "right panel · needs {}+ cols",
+                            crate::ui::widgets::RAIL_MIN_WIDTH
+                        ),
                     },
                 ]
             }
@@ -642,6 +658,13 @@ impl Sheet {
             };
             lines.push(Line::from(Span::styled(filter, theme::dim())));
         }
+        let confirming_rewind = matches!(
+            self.kind,
+            SheetKind::Rewind {
+                confirming: true,
+                ..
+            }
+        );
         if let SheetKind::Rewind {
             confirming: true,
             turns,
@@ -652,12 +675,13 @@ impl Sheet {
                 .map(|t| t.text.as_str())
                 .unwrap_or("");
             lines.push(Line::from(Span::styled(
-                "This drops that turn and everything after it.",
-                theme::error(),
-            )));
-            lines.push(Line::from(Span::styled(
                 truncate(preview, 72),
                 theme::text(),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Drop this turn and everything after it?",
+                theme::dim(),
             )));
         }
         if self.loading {
@@ -666,32 +690,34 @@ impl Sheet {
         if let Some(n) = &self.notice {
             lines.push(Line::from(Span::styled(n.clone(), theme::accent())));
         }
-        let rows = self.rows();
-        if rows.is_empty() && !self.loading {
-            lines.push(Line::from(Span::styled("nothing here", theme::dim())));
-        }
-        let cols = inner.width as usize;
-        let window = VISIBLE.min(rows.len().saturating_sub(self.scroll));
-        let end = self.scroll + window;
-        for (i, row) in rows.iter().enumerate().take(end).skip(self.scroll) {
-            let sel = i == self.selected;
-            let mark = if sel { "▸ " } else { "  " };
-            let title = pad_cols(&format!("{mark}{}", row.title), cols);
-            if sel {
-                lines.push(Line::from(Span::styled(title, theme::selected())));
-            } else {
-                lines.push(Line::from(Span::styled(title, theme::text())));
+        if !confirming_rewind {
+            let rows = self.rows();
+            if rows.is_empty() && !self.loading {
+                lines.push(Line::from(Span::styled("nothing here", theme::dim())));
             }
-            if !row.subtitle.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    pad_cols(&format!("    {}", row.subtitle), cols),
-                    theme::dim(),
-                )));
+            let cols = inner.width as usize;
+            let window = VISIBLE.min(rows.len().saturating_sub(self.scroll));
+            let end = self.scroll + window;
+            for (i, row) in rows.iter().enumerate().take(end).skip(self.scroll) {
+                let sel = i == self.selected;
+                let mark = selector::prefix(sel);
+                let title = pad_cols(&format!("{mark}{}", row.title), cols);
+                if sel {
+                    lines.push(Line::from(Span::styled(title, theme::selected())));
+                } else {
+                    lines.push(Line::from(Span::styled(title, theme::text())));
+                }
+                if !row.subtitle.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        pad_cols(&format!("    {}", row.subtitle), cols),
+                        theme::dim(),
+                    )));
+                }
             }
         }
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(self.footer(), theme::dim())));
-        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }
 }
 
@@ -720,9 +746,10 @@ fn row_matches(q: &str, title: &str, id: &str, extra: &str) -> bool {
 
 fn pad_cols(s: &str, cols: usize) -> String {
     let mut out = s.to_string();
-    let n = out.chars().count();
-    if n < cols {
-        out.push_str(&" ".repeat(cols - n));
+    let mut n = UnicodeWidthStr::width(out.as_str());
+    while n < cols {
+        out.push(' ');
+        n += 1;
     }
     out
 }

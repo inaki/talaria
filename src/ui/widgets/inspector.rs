@@ -3,7 +3,7 @@
 //! Does not rewrite the transcript. Copy is a first-class verb.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::Rect;
+use ratatui::layout::{Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -88,7 +88,12 @@ impl Inspector {
             ));
         }
         if let Some(c) = u.cost_usd {
-            lines.push(format!("cost  ${c:.4}"));
+            let est = if u.cost_status.as_deref() == Some("estimated") {
+                " (estimated)"
+            } else {
+                ""
+            };
+            lines.push(format!("cost  ${c:.4}{est}"));
         }
         for line in &u.credits_lines {
             lines.push(line.clone());
@@ -153,7 +158,10 @@ impl Inspector {
             ))
             .border_style(theme::hairline())
             .style(Style::default().bg(theme::SURFACE()).fg(theme::TEXT()));
-        let inner = block.inner(rect);
+        let inner = block.inner(rect).inner(Margin {
+            horizontal: 2,
+            vertical: 1,
+        });
         f.render_widget(block, rect);
 
         let vis = inner.height.max(1) as usize;
@@ -163,7 +171,10 @@ impl Inspector {
         let hidden = total.saturating_sub(end);
         let mut out: Vec<Line> = self.lines[start..end]
             .iter()
-            .map(|l| Line::from(Span::styled(l.clone(), theme::text())))
+            .map(|l| match self.kind {
+                InspectorKind::Help => style_help_line(l),
+                _ => Line::from(Span::styled(l.clone(), theme::text())),
+            })
             .collect();
         if hidden > 0 {
             out.push(Line::from(Span::styled(
@@ -172,12 +183,27 @@ impl Inspector {
             )));
         }
         out.push(Line::from(""));
-        out.push(Line::from(Span::styled(
-            "c copy  ·  Esc close",
-            theme::dim().add_modifier(Modifier::DIM),
-        )));
+        out.push(Line::from(vec![
+            Span::styled("c", theme::accent()),
+            Span::styled(" copy  ·  ", theme::dim()),
+            Span::styled("Esc", theme::accent()),
+            Span::styled(" close", theme::dim()),
+        ]));
         f.render_widget(Paragraph::new(out).wrap(Wrap { trim: false }), inner);
     }
+}
+
+fn style_help_line(s: &str) -> Line<'static> {
+    if s.is_empty() {
+        return Line::from("");
+    }
+    if let Some((key, desc)) = s.split_once('\t') {
+        return Line::from(vec![
+            Span::styled(format!("{key:<16}"), theme::accent()),
+            Span::styled(desc.to_string(), theme::text()),
+        ]);
+    }
+    Line::from(Span::styled(s.to_string(), theme::dim()))
 }
 
 pub fn inspector_rect(area: Rect) -> Rect {
@@ -215,6 +241,7 @@ mod tests {
             context_max: 1000,
             context_percent: 10,
             cost_usd: Some(0.01),
+            cost_status: None,
             model: "ox".into(),
             credits_lines: vec!["$1 left".into()],
         });

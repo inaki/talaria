@@ -1,5 +1,7 @@
 //! Approval / clarify / sudo / secret / session-picker overlays.
 
+use std::collections::VecDeque;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -15,6 +17,63 @@ use crate::session::{
 use crate::theme;
 use crate::ui::keys::{is_ctrl_c, is_ctrl_d, is_ctrl_n, typed_char};
 use crate::ui::screens::ScreenAction;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClarifyStep {
+    pub qid: Option<String>,
+    pub question: String,
+    pub choices: Option<Vec<String>>,
+}
+
+/// Normalize a `clarify.request` payload: either the single-question shape
+/// (`question` + `choices`) or the batch shape (`questions: [{qid, question,
+/// choices}]`). Batch entries already answered (`answers`, sent on reconnect)
+/// are skipped.
+pub fn clarify_steps(payload: &serde_json::Value) -> Vec<ClarifyStep> {
+    fn choices_of(v: &serde_json::Value) -> Option<Vec<String>> {
+        let c: Vec<String> = v
+            .get("choices")?
+            .as_array()?
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect();
+        (!c.is_empty()).then_some(c)
+    }
+    let answered = payload.get("answers").and_then(|v| v.as_object());
+    let batch: Vec<ClarifyStep> = payload
+        .get("questions")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|q| {
+            let qid = q.get("qid")?.as_str().filter(|s| !s.is_empty())?;
+            let question = q.get("question")?.as_str()?.trim();
+            if question.is_empty() || answered.is_some_and(|a| a.contains_key(qid)) {
+                return None;
+            }
+            Some(ClarifyStep {
+                qid: Some(qid.to_string()),
+                question: question.to_string(),
+                choices: choices_of(q),
+            })
+        })
+        .collect();
+    if !batch.is_empty() {
+        return batch;
+    }
+    let question = payload
+        .get("question")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Hermes has a question")
+        .to_string();
+    vec![ClarifyStep {
+        qid: None,
+        question,
+        choices: choices_of(payload),
+    }]
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionTab {
@@ -35,10 +94,15 @@ pub enum Overlay {
         request_id: Option<String>,
         allow_permanent: bool,
     },
+    /// One clarify prompt. Batch requests (`questions: [...]`) show one question
+    /// at a time: `qid` is the current one, `queue` holds the rest.
     Clarify {
         request_id: String,
+        qid: Option<String>,
         question: String,
         choices: Option<Vec<String>>,
+        queue: VecDeque<ClarifyStep>,
+        total: usize,
         selected: usize,
         draft: String,
     },
@@ -160,8 +224,33 @@ impl Overlay {
         !matches!(self, Overlay::None)
     }
 
+    pub fn is_clarify(&self) -> bool {
+        matches!(self, Overlay::Clarify { .. })
+    }
+
+    /// Clarify / approval replace the composer (full-width bottom dock).
+    pub fn is_composer_dock(&self) -> bool {
+        self.is_clarify() || matches!(self, Overlay::Approval { .. })
+    }
+
     pub fn close(&mut self) {
         *self = Overlay::None;
+    }
+
+    pub fn clarify(request_id: String, payload: &serde_json::Value) -> Overlay {
+        let mut queue: VecDeque<ClarifyStep> = clarify_steps(payload).into();
+        let total = queue.len();
+        let first = queue.pop_front().expect("clarify_steps is never empty");
+        Overlay::Clarify {
+            request_id,
+            qid: first.qid,
+            question: first.question,
+            choices: first.choices,
+            queue,
+            total,
+            selected: 0,
+            draft: String::new(),
+        }
     }
 }
 
@@ -229,8 +318,15 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
             ..
         } => {
             if key.code == KeyCode::Esc {
+                // Empty answer with no question_id cancels the whole request,
+                // so Hermes resumes now instead of waiting out its timeout.
+                let request_id = request_id.clone();
                 overlay.close();
-                return None;
+                return Some(ScreenAction::RespondClarify {
+                    request_id,
+                    question_id: None,
+                    answers: serde_json::json!(""),
+                });
             }
             if let Some(choices) = choices {
                 if key.code == KeyCode::Up {
@@ -243,12 +339,7 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                 }
                 if key.code == KeyCode::Enter && !choices.is_empty() {
                     let answer = choices[*selected].clone();
-                    let id = request_id.clone();
-                    overlay.close();
-                    return Some(ScreenAction::RespondClarify {
-                        request_id: id,
-                        answers: serde_json::json!(answer),
-                    });
+                    return Some(answer_clarify(overlay, answer));
                 }
             } else {
                 match key.code {
@@ -257,12 +348,7 @@ pub fn handle_overlay_key(overlay: &mut Overlay, key: KeyEvent) -> Option<Screen
                             return None;
                         }
                         let answer = draft.clone();
-                        let id = request_id.clone();
-                        overlay.close();
-                        return Some(ScreenAction::RespondClarify {
-                            request_id: id,
-                            answers: serde_json::json!(answer),
-                        });
+                        return Some(answer_clarify(overlay, answer));
                     }
                     KeyCode::Backspace => {
                         draft.pop();
@@ -656,92 +742,8 @@ pub fn draw_overlay(
 ) {
     match overlay {
         Overlay::None => {}
-        Overlay::Approval {
-            command,
-            description,
-            choices,
-            selected,
-            allow_permanent,
-            ..
-        } => {
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    "approval needed",
-                    Style::default()
-                        .fg(theme::WARNING())
-                        .add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(command.clone(), theme::text())),
-            ];
-            if !description.is_empty() {
-                lines.push(Line::from(Span::styled(description.clone(), theme::dim())));
-            }
-            if !*allow_permanent {
-                lines.push(Line::from(Span::styled(
-                    "permanent allow is not available",
-                    theme::dim(),
-                )));
-            }
-            lines.push(Line::from(""));
-            for (i, c) in choices.iter().enumerate() {
-                let mark = if i == *selected { "▸ " } else { "  " };
-                let style = if i == *selected {
-                    theme::accent()
-                } else {
-                    theme::text()
-                };
-                lines.push(Line::from(Span::styled(
-                    format!("{mark}{}. {c}", i + 1),
-                    style,
-                )));
-            }
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Enter select  ·  1-9  ·  Esc deny",
-                theme::dim(),
-            )));
-            paint_modal(f, area, " approval ", lines, 16);
-        }
-        Overlay::Clarify {
-            question,
-            choices,
-            selected,
-            draft,
-            ..
-        } => {
-            let mut lines = vec![
-                Line::from(Span::styled(question.clone(), theme::text())),
-                Line::from(""),
-            ];
-            if let Some(choices) = choices {
-                for (i, c) in choices.iter().enumerate() {
-                    let mark = if i == *selected { "▸ " } else { "  " };
-                    lines.push(Line::from(Span::styled(
-                        format!("{mark}{c}"),
-                        if i == *selected {
-                            theme::accent()
-                        } else {
-                            theme::text()
-                        },
-                    )));
-                }
-                lines.push(Line::from(Span::styled(
-                    "Enter to answer  ·  Esc to dismiss",
-                    theme::dim(),
-                )));
-            } else {
-                lines.push(Line::from(Span::styled(
-                    format!("› {draft}▍"),
-                    theme::accent(),
-                )));
-                lines.push(Line::from(Span::styled(
-                    "Enter to send  ·  Esc dismiss",
-                    theme::dim(),
-                )));
-            }
-            paint_modal(f, area, " clarify ", lines, 14);
-        }
+        Overlay::Approval { .. } => {}
+        Overlay::Clarify { .. } => {}
         Overlay::Sudo { draft, .. } => {
             let mask = "*".repeat(draft.chars().count());
             let lines = vec![
@@ -1006,8 +1008,13 @@ pub fn draw_overlay(
                     )));
                 }
                 if let Some(c) = u.cost_usd {
+                    let est = if u.cost_status.as_deref() == Some("estimated") {
+                        " (estimated)"
+                    } else {
+                        ""
+                    };
                     lines.push(Line::from(Span::styled(
-                        format!("cost  ${c:.4}"),
+                        format!("cost  ${c:.4}{est}"),
                         theme::text(),
                     )));
                 }
@@ -1221,6 +1228,173 @@ pub fn draw_overlay(
     }
 }
 
+/// Lock the current clarify answer. A batch advances to its next question and
+/// keeps the dock open; the last answer (or a single question) closes it.
+fn answer_clarify(overlay: &mut Overlay, answer: String) -> ScreenAction {
+    let Overlay::Clarify {
+        request_id,
+        qid,
+        question,
+        choices,
+        queue,
+        selected,
+        draft,
+        ..
+    } = overlay
+    else {
+        unreachable!("answer_clarify on a non-clarify overlay");
+    };
+    let action = ScreenAction::RespondClarify {
+        request_id: request_id.clone(),
+        question_id: qid.clone(),
+        answers: serde_json::json!(answer),
+    };
+    match queue.pop_front() {
+        Some(next) => {
+            *qid = next.qid;
+            *question = next.question;
+            *choices = next.choices;
+            *selected = 0;
+            draft.clear();
+        }
+        None => overlay.close(),
+    }
+    action
+}
+
+/// Height of the bottom composer dock (borders included).
+pub fn composer_dock_height(overlay: &Overlay) -> u16 {
+    match overlay {
+        Overlay::Clarify {
+            question, choices, ..
+        } => {
+            let q = question.lines().count().max(1) as u16;
+            let body = match choices {
+                Some(c) => (c.len() as u16).max(1),
+                None => 1,
+            };
+            (2 + q + 1 + body + 1).clamp(7, 16)
+        }
+        Overlay::Approval {
+            description,
+            choices,
+            allow_permanent,
+            ..
+        } => {
+            let extra = u16::from(!description.is_empty()) + u16::from(!*allow_permanent);
+            (2 + 1 + extra + 1 + choices.len() as u16 + 1).clamp(7, 16)
+        }
+        _ => 0,
+    }
+}
+
+pub fn paint_composer_dock(f: &mut Frame, area: Rect, overlay: &Overlay) {
+    match overlay {
+        Overlay::Clarify { .. } => paint_clarify_dock(f, area, overlay),
+        Overlay::Approval { .. } => paint_approval_dock(f, area, overlay),
+        _ => {}
+    }
+}
+
+fn paint_clarify_dock(f: &mut Frame, area: Rect, overlay: &Overlay) {
+    let Overlay::Clarify {
+        question,
+        choices,
+        queue,
+        total,
+        selected,
+        draft,
+        ..
+    } = overlay
+    else {
+        return;
+    };
+    let title = if *total > 1 {
+        format!(" clarify {}/{} ", total - queue.len(), total)
+    } else {
+        " clarify ".to_string()
+    };
+    let mut lines = vec![Line::from(Span::styled(question.clone(), theme::text()))];
+    lines.push(Line::from(""));
+    if let Some(choices) = choices {
+        for (i, c) in choices.iter().enumerate() {
+            lines.push(choice_line(i == *selected, c));
+        }
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("› ", theme::accent().add_modifier(Modifier::BOLD)),
+            Span::styled(draft.clone(), theme::text()),
+            Span::styled("▍", theme::accent()),
+        ]));
+    }
+    paint_dock_frame(f, area, &title, lines);
+}
+
+fn paint_approval_dock(f: &mut Frame, area: Rect, overlay: &Overlay) {
+    let Overlay::Approval {
+        command,
+        description,
+        choices,
+        selected,
+        allow_permanent,
+        ..
+    } = overlay
+    else {
+        return;
+    };
+    let mut lines = vec![Line::from(Span::styled(command.clone(), theme::text()))];
+    if !description.is_empty() {
+        lines.push(Line::from(Span::styled(description.clone(), theme::dim())));
+    }
+    if !*allow_permanent {
+        lines.push(Line::from(Span::styled(
+            "permanent allow is not available",
+            theme::dim(),
+        )));
+    }
+    lines.push(Line::from(""));
+    for (i, c) in choices.iter().enumerate() {
+        lines.push(choice_line(i == *selected, &format!("{}. {c}", i + 1)));
+    }
+    paint_dock_frame(f, area, " approval ", lines);
+}
+
+fn paint_dock_frame(f: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'static>>) {
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(
+            title.to_string(),
+            theme::accent().add_modifier(Modifier::BOLD),
+        ))
+        .border_style(theme::accent())
+        .style(Style::default().bg(theme::SURFACE()).fg(theme::TEXT()));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn selector_prefix(selected: bool) -> String {
+    crate::ui::widgets::selector::prefix(selected)
+}
+
+fn choice_line(selected: bool, label: &str) -> Line<'static> {
+    let mark_style = if selected {
+        theme::accent().add_modifier(Modifier::BOLD)
+    } else {
+        theme::dim()
+    };
+    let text_style = if selected {
+        theme::accent().add_modifier(Modifier::BOLD)
+    } else {
+        theme::text()
+    };
+    Line::from(vec![
+        Span::styled(selector_prefix(selected), mark_style),
+        Span::styled(label.to_string(), text_style),
+    ])
+}
+
 fn paint_modal(f: &mut Frame, area: Rect, title: &str, lines: Vec<Line>, want_h: u16) {
     let w = area.width.saturating_sub(4).min(72).max(24);
     let h = want_h.min(area.height.saturating_sub(2)).max(6);
@@ -1256,6 +1430,141 @@ fn truncate(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn choice_labels_share_a_column() {
+        let a = choice_line(true, "Tokio");
+        let b = choice_line(false, "Tokio");
+        assert_eq!(
+            UnicodeWidthStr::width(a.spans[0].content.as_ref()),
+            UnicodeWidthStr::width(b.spans[0].content.as_ref())
+        );
+        assert_eq!(UnicodeWidthStr::width(a.spans[0].content.as_ref()), 2);
+        assert_eq!(UnicodeWidthStr::width(b.spans[0].content.as_ref()), 2);
+        assert_eq!(a.spans[1].content.as_ref(), "Tokio");
+        assert_eq!(b.spans[1].content.as_ref(), "Tokio");
+        assert!(
+            !b.spans[0].content.as_ref().is_empty(),
+            "unselected still occupies the selector column"
+        );
+    }
+
+    #[test]
+    fn clarify_reads_batch_questions() {
+        let steps = clarify_steps(&serde_json::json!({
+            "questions": [
+                {"qid": "q1", "question": "Which runtime?", "choices": ["Tokio", "smol"]},
+                {"qid": "q2", "question": " Name the crate ", "choices": []},
+                {"qid": "q3", "question": "Already done?", "choices": null},
+            ],
+            "answers": {"q3": "yes"},
+        }));
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert_eq!(steps[0].question, "Which runtime?");
+        assert_eq!(steps[0].qid.as_deref(), Some("q1"));
+        assert_eq!(steps[1].question, "Name the crate");
+        assert_eq!(steps[1].choices, None, "empty choices means free text");
+    }
+
+    #[test]
+    fn clarify_single_question_keeps_legacy_shape() {
+        let steps = clarify_steps(&serde_json::json!({"question": "Title?"}));
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].question, "Title?");
+        assert_eq!(steps[0].qid, None);
+    }
+
+    #[test]
+    fn clarify_batch_answers_each_question_then_closes() {
+        let mut overlay = Overlay::clarify(
+            "r1".into(),
+            &serde_json::json!({"questions": [
+                {"qid": "q1", "question": "Pick", "choices": ["a", "b"]},
+                {"qid": "q2", "question": "Type", "choices": []},
+            ]}),
+        );
+        let enter = KeyEvent::from(KeyCode::Enter);
+        let Some(ScreenAction::RespondClarify {
+            question_id,
+            answers,
+            ..
+        }) = handle_overlay_key(&mut overlay, enter)
+        else {
+            panic!("first answer should respond");
+        };
+        assert_eq!(question_id.as_deref(), Some("q1"));
+        assert_eq!(answers, serde_json::json!("a"));
+        let Overlay::Clarify { question, .. } = &overlay else {
+            panic!("dock stays open for the next question");
+        };
+        assert_eq!(question, "Type");
+        handle_overlay_key(&mut overlay, KeyEvent::from(KeyCode::Char('x')));
+        let Some(ScreenAction::RespondClarify {
+            question_id,
+            answers,
+            ..
+        }) = handle_overlay_key(&mut overlay, enter)
+        else {
+            panic!("second answer should respond");
+        };
+        assert_eq!(question_id.as_deref(), Some("q2"));
+        assert_eq!(answers, serde_json::json!("x"));
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn clarify_esc_cancels_request() {
+        let mut overlay = Overlay::clarify(
+            "r1".into(),
+            &serde_json::json!({"questions": [
+                {"qid": "q1", "question": "Pick", "choices": ["a"]},
+                {"qid": "q2", "question": "Type", "choices": []},
+            ]}),
+        );
+        let Some(ScreenAction::RespondClarify {
+            question_id,
+            answers,
+            ..
+        }) = handle_overlay_key(&mut overlay, KeyEvent::from(KeyCode::Esc))
+        else {
+            panic!("esc should tell Hermes the prompt was cancelled");
+        };
+        assert_eq!(question_id, None, "no question_id cancels the whole batch");
+        assert_eq!(answers, serde_json::json!(""));
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn clarify_dock_is_taller_than_composer() {
+        let overlay = Overlay::clarify(
+            "r1".into(),
+            &serde_json::json!({
+                "question": "Which runtime?",
+                "choices": ["Tokio", "async-std", "Keep blocking"],
+            }),
+        );
+        assert!(overlay.is_clarify());
+        assert!(overlay.is_composer_dock());
+        let h = composer_dock_height(&overlay);
+        assert!(h >= 7, "{h}");
+        assert!(h <= 16, "{h}");
+    }
+
+    #[test]
+    fn approval_is_a_composer_dock() {
+        let overlay = Overlay::Approval {
+            command: "rm -rf /tmp/mock".into(),
+            description: "Mock dangerous command.".into(),
+            choices: vec!["once".into(), "always".into(), "deny".into()],
+            selected: 0,
+            request_id: Some("r1".into()),
+            allow_permanent: true,
+        };
+        assert!(overlay.is_composer_dock());
+        let h = composer_dock_height(&overlay);
+        assert!(h >= 7, "{h}");
+    }
 
     #[test]
     fn sudo_expire_only_clears_matching_id() {

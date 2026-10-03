@@ -42,6 +42,8 @@ pub enum ScreenAction {
     },
     RespondClarify {
         request_id: String,
+        /// Set for batch clarify: locks one question of the request.
+        question_id: Option<String>,
         answers: Value,
     },
     RespondSudo {
@@ -155,9 +157,14 @@ impl std::fmt::Debug for ScreenAction {
                 .field("choice", choice)
                 .field("request_id", request_id)
                 .finish(),
-            ScreenAction::RespondClarify { request_id, .. } => f
+            ScreenAction::RespondClarify {
+                request_id,
+                question_id,
+                ..
+            } => f
                 .debug_struct("RespondClarify")
                 .field("request_id", request_id)
+                .field("question_id", question_id)
                 .field("answers", &"<omitted>")
                 .finish(),
             ScreenAction::RespondSudo {

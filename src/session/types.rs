@@ -39,6 +39,7 @@ pub enum SessionCommand {
     },
     RespondClarify {
         request_id: String,
+        question_id: Option<String>,
         answers: Value,
     },
     RespondSudo {
@@ -381,8 +382,28 @@ pub struct UsageSnapshot {
     pub context_max: u64,
     pub context_percent: u64,
     pub cost_usd: Option<f64>,
+    /// Hermes pricing confidence: `"actual"` or `"estimated"`.
+    pub cost_status: Option<String>,
     pub model: String,
     pub credits_lines: Vec<String>,
+}
+
+impl UsageSnapshot {
+    /// Session spend for display, e.g. `$0.12`, `~$0.004` when estimated.
+    pub fn cost_label(&self) -> Option<String> {
+        let cost = self.cost_usd?;
+        let approx = if self.cost_status.as_deref() == Some("estimated") {
+            "~"
+        } else {
+            ""
+        };
+        let amount = if cost > 0.0 && cost < 0.1 {
+            format!("{cost:.3}")
+        } else {
+            format!("{cost:.2}")
+        };
+        Some(format!("{approx}${amount}"))
+    }
 }
 
 #[derive(Debug, Clone)]

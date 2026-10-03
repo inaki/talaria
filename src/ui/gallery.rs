@@ -45,6 +45,9 @@ use crate::ui::widgets::{
 enum Sample {
     Wordmark,
     Caduceus,
+    Mascot,
+    LogoArt,
+    Tachyon,
     Tokens,
     Spinner,
     KeyHints,
@@ -73,6 +76,9 @@ impl Sample {
     const ALL: &'static [Sample] = &[
         Sample::Wordmark,
         Sample::Caduceus,
+        Sample::Mascot,
+        Sample::LogoArt,
+        Sample::Tachyon,
         Sample::Tokens,
         Sample::Spinner,
         Sample::KeyHints,
@@ -101,6 +107,9 @@ impl Sample {
         match self {
             Sample::Wordmark => "Wordmark",
             Sample::Caduceus => "Caduceus (agent)",
+            Sample::Mascot => "Mascot",
+            Sample::LogoArt => "Mascot (logo-art)",
+            Sample::Tachyon => "Effects (tachyonfx)",
             Sample::Tokens => "Theme tokens",
             Sample::Spinner => "Spinner",
             Sample::KeyHints => "Key hints",
@@ -121,7 +130,7 @@ impl Sample {
             Sample::InspectorTool => "Inspector — tool",
             Sample::InspectorUsage => "Inspector — usage",
             Sample::InspectorHelp => "Inspector — help",
-            Sample::ModalApproval => "Modal — approve",
+            Sample::ModalApproval => "Dock — approve",
             Sample::ModalQuit => "Modal — quit",
         }
     }
@@ -141,6 +150,7 @@ impl Sample {
                 | Sample::InspectorTool
                 | Sample::InspectorUsage
                 | Sample::InspectorHelp
+                | Sample::Tachyon
         )
     }
 }
@@ -157,6 +167,9 @@ struct App {
     trees: Sheet,
     inspector: Inspector,
     usage: Inspector,
+    fx_kind: usize,
+    fx: crate::ui::fx_story::Effect,
+    fx_last: Instant,
 }
 
 impl App {
@@ -233,6 +246,9 @@ impl App {
             trees,
             inspector,
             usage,
+            fx_kind: 0,
+            fx: crate::ui::fx_story::effect(0),
+            fx_last: Instant::now(),
         }
     }
 
@@ -244,6 +260,21 @@ impl App {
         let themes = theme::themes();
         self.theme_idx = (self.theme_idx + 1) % themes.len();
         theme::apply_theme(themes[self.theme_idx].id);
+        self.restart_fx();
+    }
+
+    fn restart_fx(&mut self) {
+        self.fx = crate::ui::fx_story::effect(self.fx_kind);
+        self.fx_last = Instant::now();
+    }
+
+    fn cycle_fx(&mut self, dir: i32) {
+        self.fx_kind = if dir < 0 {
+            crate::ui::fx_story::prev_kind(self.fx_kind)
+        } else {
+            crate::ui::fx_story::next_kind(self.fx_kind)
+        };
+        self.restart_fx();
     }
 
     fn on_key(&mut self, key: KeyEvent) -> bool {
@@ -267,14 +298,32 @@ impl App {
                 } else {
                     self.selected = Sample::ALL.len() - 1;
                 }
+                if self.sample() == Sample::Tachyon {
+                    self.restart_fx();
+                }
                 false
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.selected = (self.selected + 1) % Sample::ALL.len();
+                if self.sample() == Sample::Tachyon {
+                    self.restart_fx();
+                }
                 false
             }
             KeyCode::Enter if self.sample().interactive() => {
                 self.focused = true;
+                false
+            }
+            KeyCode::Left if self.sample() == Sample::Tachyon => {
+                self.cycle_fx(-1);
+                false
+            }
+            KeyCode::Right if self.sample() == Sample::Tachyon => {
+                self.cycle_fx(1);
+                false
+            }
+            KeyCode::Char(' ') if self.sample() == Sample::Tachyon => {
+                self.restart_fx();
                 false
             }
             _ => false,
@@ -323,6 +372,12 @@ impl App {
                 let _ = self.usage.handle_key(key);
             }
             Sample::InspectorHelp => {}
+            Sample::Tachyon => match key.code {
+                KeyCode::Left | KeyCode::Char('h') => self.cycle_fx(-1),
+                KeyCode::Right | KeyCode::Char('l') => self.cycle_fx(1),
+                KeyCode::Char(' ') => self.restart_fx(),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -475,13 +530,17 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Sample::InspectorTool | Sample::InspectorUsage | Sample::InspectorHelp => {
                 vec![("↑↓", "scroll"), ("c", "copy")]
             }
+            Sample::Tachyon => vec![("←→", "cycle"), ("Space", "replay")],
             _ => vec![],
         };
         v.push(("Esc", "back"));
         v
     } else {
         let mut v = vec![("↑↓", "move")];
-        if app.sample().interactive() {
+        if app.sample() == Sample::Tachyon {
+            v.push(("←→", "effect"));
+            v.push(("Space", "replay"));
+        } else if app.sample().interactive() {
             v.push(("Enter", "interact"));
         }
         v.push(("t", "theme"));
@@ -494,8 +553,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
 fn render_sample(f: &mut Frame, area: Rect, sample: Sample, app: &mut App) {
     match sample {
         Sample::Wordmark => {
-            let lines = crate::ui::widgets::logo_lines();
-            f.render_widget(Paragraph::new(lines), area);
+            paint_centered(f, area, crate::ui::widgets::logo_lines());
         }
         Sample::Caduceus => {
             let mut lines = crate::ui::widgets::caduceus_lines();
@@ -504,7 +562,34 @@ fn render_sample(f: &mut Frame, area: Rect, sample: Sample, app: &mut App) {
                 "Hermes Agent mark — not Talaria’s logo",
                 theme::dim(),
             )));
-            f.render_widget(Paragraph::new(lines), area);
+            paint_centered(f, area, lines);
+        }
+        Sample::Mascot => {
+            let mut lines = crate::ui::widgets::mascot_lines();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Gold wings · mint sneaker",
+                theme::dim(),
+            )));
+            paint_centered(f, area, lines);
+        }
+        Sample::LogoArt => {
+            let mut lines = crate::ui::widgets::logo_art_lines();
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "logo-art ▄/▀ · same PNG · 24-bit (not theme tokens)",
+                theme::dim(),
+            )));
+            paint_centered(f, area, lines);
+        }
+        Sample::Tachyon => {
+            let dt = {
+                let now = Instant::now();
+                let dt = now.saturating_duration_since(app.fx_last);
+                app.fx_last = now;
+                dt.into()
+            };
+            crate::ui::fx_story::paint(f, area, app.fx_kind, &mut app.fx, dt);
         }
         Sample::Tokens => render_tokens(f, area),
         Sample::Spinner => {
@@ -813,6 +898,7 @@ fn sample_usage() -> UsageSnapshot {
         context_max: 1_000_000,
         context_percent: 2,
         cost_usd: Some(0.04),
+        cost_status: None,
         model: "ox-alpha".into(),
         credits_lines: vec!["$9.12 remaining".into()],
     }
@@ -837,6 +923,24 @@ fn catalog() -> Vec<SlashItem> {
             help: "regenerate from a turn".into(),
         },
     ]
+}
+
+fn paint_centered(f: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
+    let h = lines.len() as u16;
+    let target = if area.height > h {
+        let pad = (area.height - h) / 2;
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(pad),
+                Constraint::Length(h),
+                Constraint::Min(0),
+            ])
+            .split(area)[1]
+    } else {
+        area
+    };
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), target);
 }
 
 fn inset(area: Rect, dx: u16, dy: u16) -> Rect {

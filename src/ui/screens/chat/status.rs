@@ -61,6 +61,10 @@ pub fn line(meter: &Meter, width: u16) -> Line<'static> {
         ));
     }
 
+    if let Some(cost) = meter.usage.cost_label() {
+        left.push(Seg::text(cost, theme::agent()));
+    }
+
     if !meter.session.is_zero() || meter.turn.is_some() {
         left.push(Seg::text(
             fmt_duration(meter.session.as_secs()),
@@ -261,6 +265,45 @@ mod tests {
     fn model_shortens() {
         assert_eq!(short_model("stealth/ox-alpha"), "ox-alpha");
         assert_eq!(short_model("ox-alpha"), "ox-alpha");
+    }
+
+    #[test]
+    fn meter_shows_session_cost() {
+        let meter = Meter {
+            model: "ox-alpha".into(),
+            git_branch: String::new(),
+            usage: UsageSnapshot {
+                cost_usd: Some(1.234),
+                cost_status: Some("actual".into()),
+                ..UsageSnapshot::default()
+            },
+            session: Duration::from_secs(1),
+            turn: None,
+            turn_live: false,
+            idle: None,
+            right: String::new(),
+            spinner: None,
+            model_global: false,
+        };
+        let t: String = line(&meter, 60)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(t.contains("$1.23"), "{t}");
+    }
+
+    #[test]
+    fn cost_label_formats() {
+        let u = |c: f64, s: &str| UsageSnapshot {
+            cost_usd: Some(c),
+            cost_status: Some(s.into()),
+            ..UsageSnapshot::default()
+        };
+        assert_eq!(u(0.0042, "estimated").cost_label().unwrap(), "~$0.004");
+        assert_eq!(u(0.0, "actual").cost_label().unwrap(), "$0.00");
+        assert_eq!(u(12.5, "actual").cost_label().unwrap(), "$12.50");
+        assert_eq!(UsageSnapshot::default().cost_label(), None);
     }
 
     #[test]

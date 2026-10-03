@@ -17,7 +17,7 @@ pub struct Cli {
     #[arg(long)]
     pub dev: bool,
 
-    /// Canned MockSession script: streaming | tools | approval | error
+    /// Canned MockSession script: streaming | home | tools | approval | error | subagent
     #[arg(long)]
     pub mock: Option<String>,
 

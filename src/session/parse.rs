@@ -275,6 +275,14 @@ fn map_wire(ev: WireEvent) -> SessionEvent {
                 .map(|s| s.to_string()),
         },
         "approval.pending" => SessionEvent::ApprovalPending,
+        // ~1s ticker while a turn runs; payload is `{usage: <session.usage result>}`.
+        "session.usage" => match payload.get("usage") {
+            Some(usage) => parse_usage(usage),
+            None => SessionEvent::Unhandled {
+                type_name: "session.usage".into(),
+                payload: payload.clone(),
+            },
+        },
         "clarify.request" => SessionEvent::ClarifyRequest {
             request_id: payload
                 .get("request_id")
@@ -925,6 +933,10 @@ pub(super) fn parse_usage(result: &Value) -> SessionEvent {
         context_max: num("context_max"),
         context_percent: num("context_percent"),
         cost_usd: result.get("cost_usd").and_then(|v| v.as_f64()),
+        cost_status: result
+            .get("cost_status")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         model: result
             .get("model")
             .and_then(|v| v.as_str())
@@ -1197,6 +1209,26 @@ mod tests {
                 assert_eq!(u.total, 1040);
                 assert_eq!(u.credits_lines.len(), 1);
                 assert_eq!(u.cost_usd, Some(0.02));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_usage_event_carries_cost() {
+        let ev = map_wire(WireEvent {
+            type_name: "session.usage".into(),
+            session_id: None,
+            payload: json!({"usage": {
+                "total": 900,
+                "cost_usd": 0.0123,
+                "cost_status": "estimated",
+            }}),
+        });
+        match ev {
+            SessionEvent::Usage(u) => {
+                assert_eq!(u.total, 900);
+                assert_eq!(u.cost_label().as_deref(), Some("~$0.012"));
             }
             other => panic!("{other:?}"),
         }
